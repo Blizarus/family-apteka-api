@@ -75,6 +75,7 @@ class AuthController extends Controller
                 'id' => $user->id,
                 'email' => $user->email,
                 'timezone' => $user->timezone,
+                'is_admin' => (bool) $user->is_admin,
             ],
             'profile' => [
                 'id' => $profile->id,
@@ -129,6 +130,7 @@ class AuthController extends Controller
                 'id' => $user->id,
                 'email' => $user->email,
                 'timezone' => $user->timezone,
+                'is_admin' => (bool) $user->is_admin,
             ],
         ], 200);
     }
@@ -149,6 +151,7 @@ class AuthController extends Controller
             'email' => $user->email,
             'sync_enabled' => $user->sync_enabled,
             'timezone' => $user->timezone,
+            'is_admin' => (bool) $user->is_admin,
         ], 200);
     }
 

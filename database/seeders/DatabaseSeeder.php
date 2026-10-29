@@ -34,6 +34,17 @@ class DatabaseSeeder extends Seeder
             'password' => Hash::make('password'),
             'timezone' => 'Europe/Moscow',
             'sync_enabled' => true,
+            'is_admin' => false,
+            'email_verified_at' => now(),
+        ]);
+
+        // 1.1. Администратор безопасности ИС (ролевой доступ RBAC согласно ЛР 2)
+        User::create([
+            'email' => 'admin@family.test',
+            'password' => Hash::make('admin123'),
+            'timezone' => 'Europe/Moscow',
+            'sync_enabled' => true,
+            'is_admin' => true,
             'email_verified_at' => now(),
         ]);
 
