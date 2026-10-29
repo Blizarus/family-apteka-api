@@ -1,0 +1,18 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    paths:
+        - app/
+        - config/
+        - routes/
+
+    # Уровень строгости статического анализа (0-9)
+    level: 5
+
+    # Игнорируемые специфичные динамические вызовы Eloquent
+    ignoreErrors:
+        - '#PHPDoc tag @var#'
+
+    checkMissingIterableValueType: false
+    checkGenericClassInNonGenericObjectType: false

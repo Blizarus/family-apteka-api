@@ -8,13 +8,25 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class IntakeCourse extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'profile_id',
+        'medicine_id',
+        'title',
+        'start_date',
+        'end_date',
+        'dosage_quantity',
+        'dosage_instruction',
+        'notes',
+        'is_active',
+    ];
+
     protected function casts(): array{
         return [
             'start_date' => 'date',
             'end_date' => 'date',
             'dosage_quantity' => 'decimal:3',
             'is_active' => 'boolean',
+            'notes' => 'encrypted', // Шифрование диагноза / чувствительных примечаний (AES-256)
         ];
     }
     public function profile(): BelongsTo

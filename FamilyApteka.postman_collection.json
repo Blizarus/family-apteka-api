@@ -1,0 +1,1698 @@
+{
+  "info": {
+    "_postman_id": "a9e6d8b2-5f34-4b8c-9e21-d1f8a7c64210",
+    "name": "Семейная Аптечка — REST API (Sanctum, Argon2id, AES-256)",
+    "description": "Интерактивная коллекция Postman v2.1.0 для тестирования и демонстрации REST API защищенной системы «Семейная аптечка».\n\nСервер по умолчанию: {{baseUrl}} (удаленный: http://e340043kek.temp.swtest.ru/api или локальный: http://127.0.0.1:8000/api).\nАвторизация: Выполните запрос в папке `01. Auth / Login (Авторизация)` — токен Sanctum автоматически запишется в переменную коллекции `{{token}}`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://e340043kek.temp.swtest.ru/api",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "profile_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "box_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "medicine_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "reference_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "course_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "log_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "notification_id",
+      "value": "1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01. Auth (Аутентификация и 152-ФЗ)",
+      "item": [
+        {
+          "name": "Login (Авторизация и получение токена)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    var jsonData = pm.response.json();",
+                  "    if (jsonData.token) {",
+                  "        pm.collectionVariables.set('token', jsonData.token);",
+                  "        console.log('Sanctum Token сохранен в переменную token');",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"anna@family.test\",\n  \"password\": \"password\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Вход пользователя в систему с проверкой Argon2id и автосохранением токена в коллекцию."
+          }
+        },
+        {
+          "name": "Register New User (Регистрация по 152-ФЗ)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\\u041d\\u043e\\u0432\\u044b\\u0439 \\u041f\\u043e\\u043b\\u044c\\u0437\\u043e\\u0432\\u0430\\u0442\\u0435\\u043b\\u044c\",\n  \"email\": \"new_user_vkr@family.test\",\n  \"password\": \"password123\",\n  \"password_confirmation\": \"password123\",\n  \"timezone\": \"Europe/Moscow\",\n  \"terms_accepted\": true,\n  \"sync_enabled\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Current User Profile (/auth/me)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Password (/auth/password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"current_password\": \"password\",\n  \"password\": \"password_new\",\n  \"password_confirmation\": \"password_new\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/password",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "password"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Logout (/auth/logout)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02. Dashboard (Сводная аналитика)",
+      "item": [
+        {
+          "name": "Get Dashboard Metrics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "dashboard"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03. Profiles (Профили членов семьи)",
+      "item": [
+        {
+          "name": "List Family Profiles",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/profiles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "profiles"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Profile (с аллергенами)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\\u0421\\u044b\\u043d \\u041c\\u0438\\u0448\\u0430\",\n  \"birth_date\": \"2018-06-10\",\n  \"avatar_url\": \"\\ud83e\\uddd2\",\n  \"notes\": \"\\u0410\\u043b\\u043b\\u0435\\u0440\\u0433\\u0438\\u044f \\u043d\\u0430 \\u0446\\u0438\\u0442\\u0440\\u0443\\u0441\\u043e\\u0432\\u044b\\u0435\",\n  \"allergies\": [\n    \"\\u0446\\u0438\\u0442\\u0440\\u0443\\u0441\\u043e\\u0432\\u044b\\u0435\",\n    \"\\u043a\\u0440\\u0430\\u0441\\u0438\\u0442\\u0435\\u043b\\u0438\"\n  ],\n  \"chronic_conditions\": []\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/profiles",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "profiles"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Profile by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/profiles/{{profile_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "profiles",
+                "{{profile_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Update Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\\u0421\\u044b\\u043d \\u041c\\u0438\\u0448\\u0430 (\\u043e\\u0431\\u043d\\u043e\\u0432\\u043b\\u0435\\u043d\\u043e)\",\n  \"notes\": \"\\u041f\\u043e\\u0441\\u0435\\u0449\\u0430\\u0435\\u0442 \\u0441\\u0435\\u043a\\u0446\\u0438\\u044e \\u043f\\u043b\\u0430\\u0432\\u0430\\u043d\\u0438\\u044f\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/profiles/{{profile_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "profiles",
+                "{{profile_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04. Medicine Boxes (Семейные аптечки)",
+      "item": [
+        {
+          "name": "List Medicine Boxes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/medicine-boxes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medicine-boxes"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Medicine Box",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"\\u0414\\u0430\\u0447\\u043d\\u0430\\u044f \\u0430\\u043f\\u0442\\u0435\\u0447\\u043a\\u0430\",\n  \"box_type\": \"travel\",\n  \"description\": \"\\u0410\\u043f\\u0442\\u0435\\u0447\\u043a\\u0430 \\u0432 \\u0437\\u0430\\u0433\\u043e\\u0440\\u043e\\u0434\\u043d\\u043e\\u043c \\u0434\\u043e\\u043c\\u0435\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/medicine-boxes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medicine-boxes"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Medicine Box Content",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/medicine-boxes/{{box_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medicine-boxes",
+                "{{box_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05. Box Sharing & Members (Семейный доступ)",
+      "item": [
+        {
+          "name": "List Box Members",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/medicine-boxes/{{box_id}}/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medicine-boxes",
+                "{{box_id}}",
+                "members"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Invite Box Member (Editor)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200, 201', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"doctor@clinic.test\",\n  \"role\": \"viewer\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/medicine-boxes/{{box_id}}/members",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medicine-boxes",
+                "{{box_id}}",
+                "members"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "06. Medicines (Учёт упаковок лекарств)",
+      "item": [
+        {
+          "name": "List Medicines (Paginated)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/medicines?page=1&per_page=25",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medicines"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "per_page",
+                  "value": "25"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Search Medicines (Поиск по названию/ГРЛС)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/medicines?q=парацетамол",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medicines"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "парацетамол"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Medicine (с AES-256 шифрованием)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicine_box_id\": 1,\n  \"reference_medicine_id\": 1,\n  \"custom_trade_name\": \"\\u041d\\u0443\\u0440\\u043e\\u0444\\u0435\\u043d \\u0424\\u043e\\u0440\\u0442\\u0435\",\n  \"barcode\": \"5000158066228\",\n  \"quantity\": 20.0,\n  \"quantity_unit\": \"pcs\",\n  \"expiration_date\": \"2027-12-31\",\n  \"opened_at\": \"2026-10-25\",\n  \"days_after_opening\": 180,\n  \"low_stock_threshold\": 3.0,\n  \"storage_condition\": \"room\",\n  \"notes\": \"\\u0425\\u0440\\u0430\\u043d\\u0438\\u0442\\u044c \\u0432 \\u0441\\u0443\\u0445\\u043e\\u043c \\u043c\\u0435\\u0441\\u0442\\u0435\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/medicines",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medicines"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Medicine by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/medicines/{{medicine_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medicines",
+                "{{medicine_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "07. Reference Medicines (Каталог ГРЛС/МНН)",
+      "item": [
+        {
+          "name": "Search Catalog (ГРЛС)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reference-medicines?q=ибупрофен",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reference-medicines"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "ибупрофен"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Reference Medicine Details",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reference-medicines/{{reference_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reference-medicines",
+                "{{reference_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "08. Intake Courses (Курсы приёма)",
+      "item": [
+        {
+          "name": "List Intake Courses",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/intake-courses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intake-courses"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create Intake Course (с автогенерацией логов)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profile_id\": 1,\n  \"medicine_id\": 1,\n  \"title\": \"\\u041a\\u0443\\u0440\\u0441 \\u041d\\u0443\\u0440\\u043e\\u0444\\u0435\\u043d 3 \\u0440\\u0430\\u0437\\u0430 \\u0432 \\u0434\\u0435\\u043d\\u044c\",\n  \"start_date\": \"2026-10-29\",\n  \"end_date\": \"2026-11-05\",\n  \"dosage_quantity\": 1.0,\n  \"rule\": \"\\u043f\\u043e\\u0441\\u043b\\u0435 \\u0435\\u0434\\u044b\",\n  \"time_slots\": [\n    \"08:00\",\n    \"14:00\",\n    \"20:00\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/intake-courses",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intake-courses"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Intake Course by ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/intake-courses/{{course_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intake-courses",
+                "{{course_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "09. Intake Logs (Журнал приёмов)",
+      "item": [
+        {
+          "name": "Today Intake Logs (На сегодня)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/intake-logs?date=today",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intake-logs"
+              ],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "today"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "History Logs (Пагинация)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/intake-logs?history=1&page=1",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intake-logs"
+              ],
+              "query": [
+                {
+                  "key": "history",
+                  "value": "1"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Quick Intake (Разовый приём по требованию PRN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 201', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"medicine_id\": 1,\n  \"profile_id\": 1,\n  \"quantity\": 1.0,\n  \"symptom\": \"\\u0413\\u043e\\u043b\\u043e\\u0432\\u043d\\u0430\\u044f \\u0431\\u043e\\u043b\\u044c\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/intake-logs/quick",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intake-logs",
+                "quick"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Take Medicine (Отметка и списание остатка)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/intake-logs/{{log_id}}/take",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intake-logs",
+                "{{log_id}}",
+                "take"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Snooze Intake (Отложить на 15 мин)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"minutes\": 15\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/intake-logs/{{log_id}}/snooze",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intake-logs",
+                "{{log_id}}",
+                "snooze"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Skip Intake (Пропуск с указанием причины)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"\\u041f\\u043e\\u0432\\u044b\\u0441\\u0438\\u043b\\u043e\\u0441\\u044c \\u0430\\u0440\\u0442\\u0435\\u0440\\u0438\\u0430\\u043b\\u044c\\u043d\\u043e\\u0435 \\u0434\\u0430\\u0432\\u043b\\u0435\\u043d\\u0438\\u0435\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/intake-logs/{{log_id}}/skip",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intake-logs",
+                "{{log_id}}",
+                "skip"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Medication Safety (Клинический анализ CDS)",
+      "item": [
+        {
+          "name": "Check Safety (Проверка рисков перед приемом)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"profile_id\": 1,\n  \"medicine_id\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/medication-safety/check",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medication-safety",
+                "check"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Notifications (Системные уведомления)",
+      "item": [
+        {
+          "name": "List Notifications",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Delete Notification",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/notifications/{{notification_id}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "notifications",
+                "{{notification_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

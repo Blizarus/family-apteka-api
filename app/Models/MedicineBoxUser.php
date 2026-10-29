@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Relations\Pivot;
 
 class MedicineBoxUser extends Pivot
 {
+    protected $table = 'medicine_box_users';
     protected $guarded = [];
     protected function casts(): array
     {

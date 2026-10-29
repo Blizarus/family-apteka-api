@@ -15,7 +15,14 @@ return new class extends Migration
             $table->id();
             $table->string('entity_type');
             $table->bigInteger('entity_id');
-            $table->enum('type', ['expiry_warning_30d', 'expiry_warning_7d', 'expiry_critical', 'intake_reminder']);
+            $table->enum('type', [
+                'expiry_warning_30d',
+                'expiry_warning_7d',
+                'expiry_critical',
+                'intake_reminder',
+                'opened_expired',
+                'low_stock',
+            ]);
             $table->foreignId('user_id')->constrained()->cascadeOnDelete()->index();
             $table->timestamp('sent_at');
             $table->index(['entity_type', 'entity_id']);

@@ -4,13 +4,29 @@ namespace App\Models;
 
 use App\MedicineQuantityUnit;
 use App\MedicineStatus;
+use App\StorageCondition;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Medicine extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'medicine_box_id',
+        'reference_medicine_id',
+        'custom_trade_name',
+        'barcode',
+        'quantity',
+        'quantity_unit',
+        'expiration_date',
+        'opened_at',
+        'days_after_opening',
+        'storage_condition',
+        'low_stock_threshold',
+        'status',
+        'notes',
+    ];
+
     protected function casts(): array
     {
         return [
@@ -19,6 +35,11 @@ class Medicine extends Model
             'quantity' => 'decimal:3',
             'expiration_date' => 'date',
             'opened_at' => 'date',
+            'storage_condition' => StorageCondition::class,
+            'days_after_opening' => 'integer',
+            'low_stock_threshold' => 'decimal:3',
+            'notes' => 'encrypted', // Шифрование чувствительных медицинских примечаний (AES-256)
+            'custom_trade_name' => 'encrypted', // Защита персональных названий препаратов в покое (Data at Rest AES-256)
         ];
     }
 

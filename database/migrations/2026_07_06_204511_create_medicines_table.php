@@ -15,13 +15,14 @@ return new class extends Migration
             $table->id();
             $table->foreignId('medicine_box_id')->constrained()->cascadeOnDelete();
             $table->foreignId('reference_medicine_id')->nullable()->constrained()->restrictOnDelete();
-            $table->string('custom_trade_name')->nullable();
+            $table->text('custom_trade_name')->nullable();
             $table->string('barcode')->nullable();
             $table->decimal('quantity', 10, 3);
             $table->enum('quantity_unit', ['pill', 'ml', 'mg', 'ampoule', 'patch', 'unit']);
             $table->date('expiration_date');
             $table->date('opened_at')->nullable();
-            $table->enum('status', ['active', 'expired', 'finished', 'disposed']);
+            $table->enum('status', ['active', 'expiring', 'expired', 'finished', 'disposed']);
+            $table->text('notes')->nullable();
             $table->index(['medicine_box_id', 'barcode']);
             $table->index(['medicine_box_id', 'expiration_date']);
             $table->timestamps();

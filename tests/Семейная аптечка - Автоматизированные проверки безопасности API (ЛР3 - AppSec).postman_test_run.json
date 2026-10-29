@@ -1,0 +1,645 @@
+{
+	"id": "78edca46-dbe4-4d55-9fa8-2242b3df2ee5",
+	"name": "Семейная аптечка - Автоматизированные проверки безопасности API (ЛР3 / AppSec)",
+	"timestamp": "2026-10-27T18:13:42.755Z",
+	"collection_id": "30843943-80b59f2d-092b-4b8c-96cc-5a01596538b2",
+	"folder_id": 0,
+	"environment_id": "0",
+	"totalPass": 18,
+	"delay": 0,
+	"persist": true,
+	"status": "finished",
+	"startedAt": "2026-10-27T18:13:34.285Z",
+	"totalFail": 15,
+	"results": [
+		{
+			"id": "11af2919-c3e3-42a0-b573-4048e8842a9f",
+			"name": "1.1. Аутентификация: Успешный вход (Статус 200 OK)",
+			"url": "http://localhost:8000/api/auth/login",
+			"time": 412,
+			"responseCode": {
+				"code": 422,
+				"name": "Unprocessable Content"
+			},
+			"tests": {
+				"Статус ответа 200 OK при верных учетных данных": false,
+				"Ответ содержит Bearer access_token и параметры сессии": false,
+				"В ответе присутствуют корректные заголовки безопасности": true
+			},
+			"testPassFailCounts": {
+				"Статус ответа 200 OK при верных учетных данных": {
+					"pass": 0,
+					"fail": 1
+				},
+				"Ответ содержит Bearer access_token и параметры сессии": {
+					"pass": 0,
+					"fail": 1
+				},
+				"В ответе присутствуют корректные заголовки безопасности": {
+					"pass": 1,
+					"fail": 0
+				}
+			},
+			"times": [
+				412
+			],
+			"allTests": [
+				{
+					"Статус ответа 200 OK при верных учетных данных": false,
+					"Ответ содержит Bearer access_token и параметры сессии": false,
+					"В ответе присутствуют корректные заголовки безопасности": true
+				}
+			]
+		},
+		{
+			"id": "0f923a5e-a9b2-4c28-810f-1984d0fd5bb1",
+			"name": "1.2. Аутентификация: Неверный пароль (Статус 401 Unauthorized)",
+			"url": "http://localhost:8000/api/auth/login",
+			"time": 349,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Статус ответа 401 Unauthorized при неверном пароле": true,
+				"Токен доступа не выдан в теле ответа": true,
+				"Сообщение об ошибке не раскрывает статус существования email (User Enumeration Protection)": true
+			},
+			"testPassFailCounts": {
+				"Статус ответа 401 Unauthorized при неверном пароле": {
+					"pass": 1,
+					"fail": 0
+				},
+				"Токен доступа не выдан в теле ответа": {
+					"pass": 1,
+					"fail": 0
+				},
+				"Сообщение об ошибке не раскрывает статус существования email (User Enumeration Protection)": {
+					"pass": 1,
+					"fail": 0
+				}
+			},
+			"times": [
+				349
+			],
+			"allTests": [
+				{
+					"Статус ответа 401 Unauthorized при неверном пароле": true,
+					"Токен доступа не выдан в теле ответа": true,
+					"Сообщение об ошибке не раскрывает статус существования email (User Enumeration Protection)": true
+				}
+			]
+		},
+		{
+			"id": "dfd02e31-f19c-451c-a7e2-5841d0335653",
+			"name": "1.3. Проверка защищенного эндпоинта с Bearer токеном (200 OK)",
+			"url": "http://localhost:8000/api/auth/me",
+			"time": 256,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Статус 200 OK при обращении к защищенному маршруту с валидным токеном": false,
+				"Тело ответа содержит информацию о профиле текущего пользователя": false
+			},
+			"testPassFailCounts": {
+				"Статус 200 OK при обращении к защищенному маршруту с валидным токеном": {
+					"pass": 0,
+					"fail": 1
+				},
+				"Тело ответа содержит информацию о профиле текущего пользователя": {
+					"pass": 0,
+					"fail": 1
+				}
+			},
+			"times": [
+				256
+			],
+			"allTests": [
+				{
+					"Статус 200 OK при обращении к защищенному маршруту с валидным токеном": false,
+					"Тело ответа содержит информацию о профиле текущего пользователя": false
+				}
+			]
+		},
+		{
+			"id": "c339b412-4af4-43fa-860f-f9dda807f244",
+			"name": "1.4. Защита эндпоинта без токена (401 Unauthorized)",
+			"url": "http://localhost:8000/api/auth/me",
+			"time": 239,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Статус 401 Unauthorized при отсутствии заголовка Authorization": true,
+				"Ответ содержит сообщение о необходимости аутентификации": true
+			},
+			"testPassFailCounts": {
+				"Статус 401 Unauthorized при отсутствии заголовка Authorization": {
+					"pass": 1,
+					"fail": 0
+				},
+				"Ответ содержит сообщение о необходимости аутентификации": {
+					"pass": 1,
+					"fail": 0
+				}
+			},
+			"times": [
+				239
+			],
+			"allTests": [
+				{
+					"Статус 401 Unauthorized при отсутствии заголовка Authorization": true,
+					"Ответ содержит сообщение о необходимости аутентификации": true
+				}
+			]
+		},
+		{
+			"id": "b76f7e80-d5e3-4086-bf0c-0ffc0748c3e4",
+			"name": "2.1. Brute-force: Попытка 1 (Допустимый лимит)",
+			"url": "http://localhost:8000/api/auth/login",
+			"time": 292,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Попытка 1: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": true
+			},
+			"testPassFailCounts": {
+				"Попытка 1: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": {
+					"pass": 1,
+					"fail": 0
+				}
+			},
+			"times": [
+				292
+			],
+			"allTests": [
+				{
+					"Попытка 1: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": true
+				}
+			]
+		},
+		{
+			"id": "809a00e5-d557-4972-9f58-cd2c3ea69ecc",
+			"name": "2.2. Brute-force: Попытка 2 (Допустимый лимит)",
+			"url": "http://localhost:8000/api/auth/login",
+			"time": 301,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Попытка 2: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": true
+			},
+			"testPassFailCounts": {
+				"Попытка 2: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": {
+					"pass": 1,
+					"fail": 0
+				}
+			},
+			"times": [
+				301
+			],
+			"allTests": [
+				{
+					"Попытка 2: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": true
+				}
+			]
+		},
+		{
+			"id": "48b158bc-1171-4683-ae01-fba9c6a7d0fd",
+			"name": "2.3. Brute-force: Попытка 3 (Допустимый лимит)",
+			"url": "http://localhost:8000/api/auth/login",
+			"time": 274,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Попытка 3: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": true
+			},
+			"testPassFailCounts": {
+				"Попытка 3: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": {
+					"pass": 1,
+					"fail": 0
+				}
+			},
+			"times": [
+				274
+			],
+			"allTests": [
+				{
+					"Попытка 3: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": true
+				}
+			]
+		},
+		{
+			"id": "8ccd290b-0fea-41f1-90ea-55c587fb8170",
+			"name": "2.4. Brute-force: Попытка 4 (Допустимый лимит)",
+			"url": "http://localhost:8000/api/auth/login",
+			"time": 229,
+			"responseCode": {
+				"code": 429,
+				"name": "Too Many Requests"
+			},
+			"tests": {
+				"Попытка 4: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": false
+			},
+			"testPassFailCounts": {
+				"Попытка 4: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": {
+					"pass": 0,
+					"fail": 1
+				}
+			},
+			"times": [
+				229
+			],
+			"allTests": [
+				{
+					"Попытка 4: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)": false
+				}
+			]
+		},
+		{
+			"id": "2e83ea89-a808-4649-b8cf-9947a9d64b94",
+			"name": "2.5. Brute-force: Попытка 5 (Граничный лимит)",
+			"url": "http://localhost:8000/api/auth/login",
+			"time": 247,
+			"responseCode": {
+				"code": 429,
+				"name": "Too Many Requests"
+			},
+			"tests": {
+				"Попытка 5: Запрос исчерпывает разрешенную квоту (5 из 5)": false
+			},
+			"testPassFailCounts": {
+				"Попытка 5: Запрос исчерпывает разрешенную квоту (5 из 5)": {
+					"pass": 0,
+					"fail": 1
+				}
+			},
+			"times": [
+				247
+			],
+			"allTests": [
+				{
+					"Попытка 5: Запрос исчерпывает разрешенную квоту (5 из 5)": false
+				}
+			]
+		},
+		{
+			"id": "d170cca8-b3dd-47e6-aa6a-5ddcb065e67c",
+			"name": "2.6. Brute-force: Попытка 6 (Превышение лимита -> 429 Too Many Requests)",
+			"url": "http://localhost:8000/api/auth/login",
+			"time": 244,
+			"responseCode": {
+				"code": 429,
+				"name": "Too Many Requests"
+			},
+			"tests": {
+				"Статус ответа 429 Too Many Requests при превышении лимита перебора": true,
+				"Сервер возвращает заголовок Retry-After или X-RateLimit-Reset": true,
+				"Тело ответа содержит понятное уведомление об ограничении частоты запросов": true
+			},
+			"testPassFailCounts": {
+				"Статус ответа 429 Too Many Requests при превышении лимита перебора": {
+					"pass": 1,
+					"fail": 0
+				},
+				"Сервер возвращает заголовок Retry-After или X-RateLimit-Reset": {
+					"pass": 1,
+					"fail": 0
+				},
+				"Тело ответа содержит понятное уведомление об ограничении частоты запросов": {
+					"pass": 1,
+					"fail": 0
+				}
+			},
+			"times": [
+				244
+			],
+			"allTests": [
+				{
+					"Статус ответа 429 Too Many Requests при превышении лимита перебора": true,
+					"Сервер возвращает заголовок Retry-After или X-RateLimit-Reset": true,
+					"Тело ответа содержит понятное уведомление об ограничении частоты запросов": true
+				}
+			]
+		},
+		{
+			"id": "1081a296-b686-4373-9fa5-96156b394fb2",
+			"name": "2.7. Автоматический стресс-тест перебора (JS Loop Pre-request Script)",
+			"url": "http://localhost:8000/api/auth/login",
+			"time": 223,
+			"responseCode": {
+				"code": 429,
+				"name": "Too Many Requests"
+			},
+			"tests": {
+				"Финальный 6-й запрос в цикле перебора заблокирован со статусом 429": true,
+				"Заголовок X-RateLimit-Remaining равен 0": true
+			},
+			"testPassFailCounts": {
+				"Финальный 6-й запрос в цикле перебора заблокирован со статусом 429": {
+					"pass": 1,
+					"fail": 0
+				},
+				"Заголовок X-RateLimit-Remaining равен 0": {
+					"pass": 1,
+					"fail": 0
+				}
+			},
+			"times": [
+				223
+			],
+			"allTests": [
+				{
+					"Финальный 6-й запрос в цикле перебора заблокирован со статусом 429": true,
+					"Заголовок X-RateLimit-Remaining равен 0": true
+				}
+			]
+		},
+		{
+			"id": "6d539347-25be-40ce-b745-57c76c032881",
+			"name": "3.1. IDOR: Попытка чтения чужой аптечки (GET /api/medicine-boxes/999)",
+			"url": "http://localhost:8000/api/medicine-boxes/999",
+			"time": 217,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Статус ответа 403 Forbidden или 404 Not Found (IDOR заблокирован)": false,
+				"Отсутствует утечка медицинских данных и чужих препаратов": true,
+				"Сообщение об ошибке информирует об отказе в авторизации действия": true
+			},
+			"testPassFailCounts": {
+				"Статус ответа 403 Forbidden или 404 Not Found (IDOR заблокирован)": {
+					"pass": 0,
+					"fail": 1
+				},
+				"Отсутствует утечка медицинских данных и чужих препаратов": {
+					"pass": 1,
+					"fail": 0
+				},
+				"Сообщение об ошибке информирует об отказе в авторизации действия": {
+					"pass": 1,
+					"fail": 0
+				}
+			},
+			"times": [
+				217
+			],
+			"allTests": [
+				{
+					"Статус ответа 403 Forbidden или 404 Not Found (IDOR заблокирован)": false,
+					"Отсутствует утечка медицинских данных и чужих препаратов": true,
+					"Сообщение об ошибке информирует об отказе в авторизации действия": true
+				}
+			]
+		},
+		{
+			"id": "e06cd0ba-1209-440e-8226-700c620ab6ed",
+			"name": "3.2. IDOR: Попытка изменения чужой аптечки (PUT /api/medicine-boxes/999)",
+			"url": "http://localhost:8000/api/medicine-boxes/999",
+			"time": 240,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Статус 403 Forbidden или 404 Not Found при попытке несанкционированного изменения": false,
+				"Изменение чужого объекта отклонено политикой безопасности": true
+			},
+			"testPassFailCounts": {
+				"Статус 403 Forbidden или 404 Not Found при попытке несанкционированного изменения": {
+					"pass": 0,
+					"fail": 1
+				},
+				"Изменение чужого объекта отклонено политикой безопасности": {
+					"pass": 1,
+					"fail": 0
+				}
+			},
+			"times": [
+				240
+			],
+			"allTests": [
+				{
+					"Статус 403 Forbidden или 404 Not Found при попытке несанкционированного изменения": false,
+					"Изменение чужого объекта отклонено политикой безопасности": true
+				}
+			]
+		},
+		{
+			"id": "87f77ffb-a4d0-4d8f-bb42-d88343ed0def",
+			"name": "3.3. IDOR: Попытка удаления чужой аптечки (DELETE /api/medicine-boxes/999)",
+			"url": "http://localhost:8000/api/medicine-boxes/999",
+			"time": 241,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Статус 403 Forbidden или 404 Not Found при попытке удаления чужого ресурса": false
+			},
+			"testPassFailCounts": {
+				"Статус 403 Forbidden или 404 Not Found при попытке удаления чужого ресурса": {
+					"pass": 0,
+					"fail": 1
+				}
+			},
+			"times": [
+				241
+			],
+			"allTests": [
+				{
+					"Статус 403 Forbidden или 404 Not Found при попытке удаления чужого ресурса": false
+				}
+			]
+		},
+		{
+			"id": "2c81be7d-8ebc-43a7-982b-56a49935eba3",
+			"name": "4.1. SQL-инъекция в параметрах создания лекарства (422 Unprocessable)",
+			"url": "http://localhost:8000/api/medicines",
+			"time": 231,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Статус ответа 422 Unprocessable Entity (SQLi обезврежен валидацией)": false,
+				"Сервер не упал с ошибкой СУБД 500 (Отсутствует утечка SQLSTATE / синтаксиса)": true,
+				"Ответ содержит структурированный список ошибок валидации полей": false
+			},
+			"testPassFailCounts": {
+				"Статус ответа 422 Unprocessable Entity (SQLi обезврежен валидацией)": {
+					"pass": 0,
+					"fail": 1
+				},
+				"Сервер не упал с ошибкой СУБД 500 (Отсутствует утечка SQLSTATE / синтаксиса)": {
+					"pass": 1,
+					"fail": 0
+				},
+				"Ответ содержит структурированный список ошибок валидации полей": {
+					"pass": 0,
+					"fail": 1
+				}
+			},
+			"times": [
+				231
+			],
+			"allTests": [
+				{
+					"Статус ответа 422 Unprocessable Entity (SQLi обезврежен валидацией)": false,
+					"Сервер не упал с ошибкой СУБД 500 (Отсутствует утечка SQLSTATE / синтаксиса)": true,
+					"Ответ содержит структурированный список ошибок валидации полей": false
+				}
+			]
+		},
+		{
+			"id": "2ff917a3-51eb-41a8-84a9-79998e702fb6",
+			"name": "4.2. Пустое тело запроса (422 Unprocessable Entity)",
+			"url": "http://localhost:8000/api/medicines",
+			"time": 230,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Статус ответа 422 Unprocessable Entity при пустом теле запроса": false,
+				"Возвращены ошибки для всех обязательных полей модели Medicine": false
+			},
+			"testPassFailCounts": {
+				"Статус ответа 422 Unprocessable Entity при пустом теле запроса": {
+					"pass": 0,
+					"fail": 1
+				},
+				"Возвращены ошибки для всех обязательных полей модели Medicine": {
+					"pass": 0,
+					"fail": 1
+				}
+			},
+			"times": [
+				230
+			],
+			"allTests": [
+				{
+					"Статус ответа 422 Unprocessable Entity при пустом теле запроса": false,
+					"Возвращены ошибки для всех обязательных полей модели Medicine": false
+				}
+			]
+		},
+		{
+			"id": "ec1a1459-7b5c-4a21-b601-99b7795dc960",
+			"name": "4.3. Некорректные типы и форматы данных (422 Unprocessable Entity)",
+			"url": "http://localhost:8000/api/medicines",
+			"time": 237,
+			"responseCode": {
+				"code": 401,
+				"name": "Unauthorized"
+			},
+			"tests": {
+				"Статус 422 Unprocessable Entity при передаче отрицательного количества и неверной даты": false,
+				"Валидация отклонила отрицательное число и недопустимый enum": false
+			},
+			"testPassFailCounts": {
+				"Статус 422 Unprocessable Entity при передаче отрицательного количества и неверной даты": {
+					"pass": 0,
+					"fail": 1
+				},
+				"Валидация отклонила отрицательное число и недопустимый enum": {
+					"pass": 0,
+					"fail": 1
+				}
+			},
+			"times": [
+				237
+			],
+			"allTests": [
+				{
+					"Статус 422 Unprocessable Entity при передаче отрицательного количества и неверной даты": false,
+					"Валидация отклонила отрицательное число и недопустимый enum": false
+				}
+			]
+		}
+	],
+	"count": 1,
+	"totalTime": 4462,
+	"collection": {
+		"requests": [
+			{
+				"id": "11af2919-c3e3-42a0-b573-4048e8842a9f",
+				"method": "POST"
+			},
+			{
+				"id": "0f923a5e-a9b2-4c28-810f-1984d0fd5bb1",
+				"method": "POST"
+			},
+			{
+				"id": "dfd02e31-f19c-451c-a7e2-5841d0335653",
+				"method": "GET"
+			},
+			{
+				"id": "c339b412-4af4-43fa-860f-f9dda807f244",
+				"method": "GET"
+			},
+			{
+				"id": "b76f7e80-d5e3-4086-bf0c-0ffc0748c3e4",
+				"method": "POST"
+			},
+			{
+				"id": "809a00e5-d557-4972-9f58-cd2c3ea69ecc",
+				"method": "POST"
+			},
+			{
+				"id": "48b158bc-1171-4683-ae01-fba9c6a7d0fd",
+				"method": "POST"
+			},
+			{
+				"id": "8ccd290b-0fea-41f1-90ea-55c587fb8170",
+				"method": "POST"
+			},
+			{
+				"id": "2e83ea89-a808-4649-b8cf-9947a9d64b94",
+				"method": "POST"
+			},
+			{
+				"id": "d170cca8-b3dd-47e6-aa6a-5ddcb065e67c",
+				"method": "POST"
+			},
+			{
+				"id": "1081a296-b686-4373-9fa5-96156b394fb2",
+				"method": "POST"
+			},
+			{
+				"id": "6d539347-25be-40ce-b745-57c76c032881",
+				"method": "GET"
+			},
+			{
+				"id": "e06cd0ba-1209-440e-8226-700c620ab6ed",
+				"method": "PUT"
+			},
+			{
+				"id": "87f77ffb-a4d0-4d8f-bb42-d88343ed0def",
+				"method": "DELETE"
+			},
+			{
+				"id": "2c81be7d-8ebc-43a7-982b-56a49935eba3",
+				"method": "POST"
+			},
+			{
+				"id": "2ff917a3-51eb-41a8-84a9-79998e702fb6",
+				"method": "POST"
+			},
+			{
+				"id": "ec1a1459-7b5c-4a21-b601-99b7795dc960",
+				"method": "POST"
+			}
+		]
+	}
+}

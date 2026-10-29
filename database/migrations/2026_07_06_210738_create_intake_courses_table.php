@@ -20,6 +20,7 @@ return new class extends Migration
             $table->date('end_date')->nullable();
             $table->decimal('dosage_quantity', 10, 3);
             $table->string('dosage_instruction');
+            $table->text('notes')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamps();
         });

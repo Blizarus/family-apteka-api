@@ -1,0 +1,2347 @@
+{
+  "info": {
+    "_postman_id": "c8a4f61e-39b2-4d57-9d21-f09c12b7a988",
+    "name": "Семейная аптечка - Автоматизированные проверки безопасности и Demo API",
+    "description": "Комплекс тестов информационной безопасности и демонстрационных сценариев REST API веб-приложения «Семейная аптечка» (дисциплина «Разработка и реализация программных систем защиты информации», 3 семестр, студент Маркова И. Б.).\n\nВключает разделы:\n01. Аутентификация и проверка Bearer токена (Sanctum);\n02. Защита от перебора (Rate Limiting HTTP 429), IDOR (HTTP 403) и SQLi (HTTP 422);\n03. Courses & Schedules — Назначение курсов на 14 дней, расписание приёмов и списание остатков таблеток;\n04. Reference Medicines — Поиск по справочнику медикаментов по штрихкоду и наименованию.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000/api",
+      "type": "string"
+    },
+    {
+      "key": "valid_email",
+      "value": "anna@family.test",
+      "type": "string"
+    },
+    {
+      "key": "valid_password",
+      "value": "password",
+      "type": "string"
+    },
+    {
+      "key": "bearer_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "victim_box_id",
+      "value": "999",
+      "type": "string"
+    },
+    {
+      "key": "brute_email",
+      "value": "bruteforce_target@example.test",
+      "type": "string"
+    },
+    {
+      "key": "current_log_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "created_course_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "log_id",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "registered_email",
+      "value": "new_member@family.test",
+      "type": "string"
+    },
+    {
+      "key": "registered_user_id",
+      "value": "2",
+      "type": "string"
+    },
+    {
+      "key": "member_id",
+      "value": "2",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "01. Auth",
+      "description": "Аутентификация, регистрация и проверка Bearer токенов Laravel Sanctum (Argon2id).",
+      "item": [
+        {
+          "name": "Register New User (POST /api/auth/register)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var ts = Date.now();",
+                  "var email = 'user_' + ts + '@family.test';",
+                  "pm.collectionVariables.set('registered_email', email);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 201 Created при успешной регистрации\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Ответ содержит Bearer access_token, созданный профиль и аптечку\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('token');",
+                  "    pm.expect(jsonData.token_type).to.eql('Bearer');",
+                  "    pm.expect(jsonData).to.have.property('user');",
+                  "    pm.expect(jsonData.user).to.have.property('email');",
+                  "    pm.expect(jsonData).to.have.property('profile');",
+                  "    pm.expect(jsonData).to.have.property('default_box');",
+                  "    if (jsonData.user && jsonData.user.id) {",
+                  "        pm.collectionVariables.set('registered_user_id', jsonData.user.id.toString());",
+                  "        pm.collectionVariables.set('member_id', jsonData.user.id.toString());",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Новый Пользователь\",\n    \"email\": \"{{registered_email}}\",\n    \"password\": \"Password123!\",\n    \"password_confirmation\": \"Password123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Регистрация нового пользователя: транзакционное создание аккаунта с хешированием Argon2id, дефолтного профиля и домашней аптечки с правами 'owner'."
+          },
+          "response": []
+        },
+        {
+          "name": "1.1. Аутентификация: Успешный вход (Статус 200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при верных учетных данных\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Ответ содержит Bearer access_token и параметры сессии\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('token');",
+                  "    pm.expect(jsonData.token_type).to.eql('Bearer');",
+                  "    pm.expect(jsonData.token).to.be.a('string').and.not.empty;",
+                  "    ",
+                  "    // Автоматическое сохранение токена в переменную коллекции",
+                  "    pm.collectionVariables.set(\"bearer_token\", jsonData.token);",
+                  "});",
+                  "",
+                  "pm.test(\"В ответе присутствуют корректные заголовки безопасности\", function () {",
+                  "    pm.response.to.have.header(\"Content-Type\");",
+                  "    pm.expect(pm.response.headers.get(\"Content-Type\")).to.include(\"application/json\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{valid_email}}\",\n    \"password\": \"{{valid_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Отправка корректных учетных данных пользователя для получения Sanctum Bearer токена."
+          },
+          "response": []
+        },
+        {
+          "name": "1.2. Аутентификация: Неверный пароль (Статус 401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 401 Unauthorized при неверном пароле\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test(\"Токен доступа не выдан в теле ответа\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.not.have.property('token');",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "});",
+                  "",
+                  "pm.test(\"Сообщение об ошибке не раскрывает статус существования email (User Enumeration Protection)\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.message).to.be.a('string');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{valid_email}}\",\n    \"password\": \"IncorrectPassword!2026\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Попытка аутентификации с заведомо ложным паролем."
+          },
+          "response": []
+        },
+        {
+          "name": "1.3. Проверка защищенного эндпоинта с Bearer токеном (200 OK)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 200 OK при обращении к защищенному маршруту с валидным токеном\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Тело ответа содержит информацию о профиле текущего пользователя\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('id');",
+                  "    pm.expect(jsonData).to.have.property('email');",
+                  "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"valid_email\"));",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Запрос информации о текущем аутентифицированном пользователе с использованием сохраненного Bearer токена."
+          },
+          "response": []
+        },
+        {
+          "name": "1.4. Защита эндпоинта без токена (401 Unauthorized)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус 401 Unauthorized при отсутствии заголовка Authorization\", function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test(\"Ответ содержит сообщение о необходимости аутентификации\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('message');",
+                  "    pm.expect(jsonData.message).to.be.oneOf(['Unauthenticated.', 'Unauthorized', 'Требуется аутентификация']);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/auth/me",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "Попытка доступа к закрытому ресурсу API без передачи токена авторизации."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "02. Intake Logs",
+      "description": "Эндпоинты расписания и управления приёмами медикаментов: откладывание приёма (Snooze), получение расписания и фиксация факта приёма.",
+      "item": [
+        {
+          "name": "Snooze Intake (POST /api/intake-logs/{id}/snooze)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при откладывании приёма лекарства (Snooze)\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Приём успешно отложен, зафиксировано новое время\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json).to.have.property('message');",
+                  "    pm.expect(json.message).to.include('отложен');",
+                  "    pm.expect(json.data).to.have.property('scheduled_time');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"minutes\": 20\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/intake-logs/{{log_id}}/snooze",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "intake-logs",
+                "{{log_id}}",
+                "snooze"
+              ]
+            },
+            "description": "Откладывание назначенного приёма лекарства на N минут (по умолчанию 15, в теле передано 20)."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Today Intake Logs (GET /api/intake-logs)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при получении логов приёма\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Ответ содержит запланированные приёмы и фиксирует ID для теста\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data).to.be.an('array');",
+                  "    if (json.data.length > 0) {",
+                  "        var scheduledLog = json.data.find(function(l) { return l.status === 'scheduled'; }) || json.data[0];",
+                  "        pm.collectionVariables.set('current_log_id', scheduledLog.id.toString());",
+                  "        pm.collectionVariables.set('log_id', scheduledLog.id.toString());",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/intake-logs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "intake-logs"
+              ]
+            },
+            "description": "Получение расписания приёмов лекарств на сегодня."
+          },
+          "response": []
+        },
+        {
+          "name": "Take Medicine (POST /api/intake-logs/{id}/take)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при подтверждении приёма лекарства\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Статус лога изменен на taken, списан остаток\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data.status).to.eql('taken');",
+                  "    pm.expect(json).to.have.property('remaining_quantity');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/intake-logs/{{log_id}}/take",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "intake-logs",
+                "{{log_id}}",
+                "take"
+              ]
+            },
+            "description": "Отметка о приёме лекарства со списанием остатка из упаковки."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "03. Courses & Schedules",
+      "description": "Эндпоинты управления курсами приёма лекарств, генерации расписания на 14 дней вперёд, получения приёмов на сегодня и списания таблеток.",
+      "item": [
+        {
+          "name": "3.1. Создание курса приёма с генерацией 28 логов (POST /api/intake-courses)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var todayStr = new Date().toISOString().split('T')[0];",
+                  "pm.variables.set('course_start_today', todayStr);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 201 Created при успешном создании курса\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Курс создан и автоматически сгенерировано ровно 28 напоминаний на 14 дней\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "    pm.expect(json.logs_created).to.eql(28);",
+                  "    ",
+                  "    // Сохраняем ID созданного курса в переменную коллекции",
+                  "    pm.collectionVariables.set('created_course_id', json.data.id);",
+                  "});",
+                  "",
+                  "pm.test(\"Ответ содержит связанные данные профиля и расписания\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('profile');",
+                  "    pm.expect(json.data).to.have.property('intake_schedules');",
+                  "    pm.expect(json.data.intake_schedules.length).to.eql(2);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"profile_id\": 1,\n    \"medicine_id\": 1,\n    \"title\": \"Курс Нурофена (Демонстрация 14 дней)\",\n    \"start_date\": \"{{course_start_today}}\",\n    \"times\": [\"09:00\", \"21:00\"],\n    \"dosage_quantity\": 1.0,\n    \"rule\": \"После еды • 1 капсула\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/intake-courses",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "intake-courses"
+              ]
+            },
+            "description": "Создание курса на 2 приёма в сутки с автоматической транзакционной генерацией 28 логов на 14 дней со статусом 'scheduled'."
+          },
+          "response": []
+        },
+        {
+          "name": "3.2. Список всех курсов приёма пользователя (GET /api/intake-courses)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при запросе списка курсов\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Возвращен непустой список активных курсов с метаданными\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data).to.be.an('array').and.not.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/intake-courses",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "intake-courses"
+              ]
+            },
+            "description": "Получение списка всех назначенных курсов приёма для членов семьи текущего пользователя."
+          },
+          "response": []
+        },
+        {
+          "name": "3.3. Получение расписания приёмов на сегодня (GET /api/intake-logs)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при получении логов приёма\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Ответ содержит запланированные приёмы и фиксирует ID для теста отметки\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data).to.be.an('array');",
+                  "    ",
+                  "    if (json.data.length > 0) {",
+                  "        // Сохраняем первый доступный ID запланированного приёма",
+                  "        var scheduledLog = json.data.find(function(l) { return l.status === 'scheduled'; }) || json.data[0];",
+                  "        pm.collectionVariables.set('current_log_id', scheduledLog.id);",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/intake-logs",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "intake-logs"
+              ]
+            },
+            "description": "Получение карточек приёмов на сегодня (экран «Сегодня» в приложении)."
+          },
+          "response": []
+        },
+        {
+          "name": "3.4. Отметка о приёме лекарства со списанием остатка (POST /api/intake-logs/{id}/take)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при подтверждении приёма лекарства\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Статус лога изменен на taken, зафиксировано время и списан остаток\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data.status).to.eql('taken');",
+                  "    pm.expect(json.data.taken_time).to.not.be.null;",
+                  "    pm.expect(json).to.have.property('remaining_quantity');",
+                  "    pm.expect(json.remaining_quantity).to.be.a('number');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/intake-logs/{{current_log_id}}/take",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "intake-logs",
+                "{{current_log_id}}",
+                "take"
+              ]
+            },
+            "description": "Фиксация факта приёма лекарства (кнопка «✓ Принято» в мобильном приложении): статус лога переходит в 'taken', из остатка упаковки вычитается дозировка."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "04. Reference Medicines",
+      "description": "Эндпоинты взаимодействия с федеральным справочником лекарственных препаратов (поиск по штрихкоду, названию, просмотр карточки).",
+      "item": [
+        {
+          "name": "4.1. Поиск лекарства по штрихкоду (5000158066121 - Нурофен)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при поиске по штрихкоду\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Найден точный препарат с искомым штрихкодом 5000158066121\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data).to.be.an('array').and.not.empty;",
+                  "    pm.expect(json.data[0].barcode).to.eql('5000158066121');",
+                  "    pm.expect(json.data[0].trade_name).to.include('Нурофен');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/reference-medicines?search=5000158066121",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "reference-medicines"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "5000158066121"
+                }
+              ]
+            },
+            "description": "Имитация работы сканера штрихкодов в мобильном клиенте: поиск препарата по штрихкоду EAN-13."
+          },
+          "response": []
+        },
+        {
+          "name": "4.2. Поиск лекарства по наименованию (GET /api/reference-medicines?search=Парацетамол)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при поиске по наименованию\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Результат содержит препараты с названием Парацетамол\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.data).to.be.an('array').and.not.empty;",
+                  "    pm.expect(json.data[0].trade_name).to.include('Парацетамол');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/reference-medicines?search=Парацетамол",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "reference-medicines"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "Парацетамол"
+                }
+              ]
+            },
+            "description": "Живой поиск лекарств по части названия или МНН."
+          },
+          "response": []
+        },
+        {
+          "name": "4.3. Карточка препарата из справочника (GET /api/reference-medicines/1)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при запросе карточки препарата\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Ответ содержит полные фармакологические данные\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data).to.have.property('trade_name');",
+                  "    pm.expect(json.data).to.have.property('inn');",
+                  "    pm.expect(json.data).to.have.property('dosage');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/reference-medicines/1",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "reference-medicines",
+                "1"
+              ]
+            },
+            "description": "Получение полной фармакологической информации о выбранном препарате."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Medication Safety (CDS)",
+      "description": "Модуль клинической безопасности и поддержки принятия решений (Clinical Decision Support - CDS). Превентивная проверка назначений на дублирование МНН, аллергии на действующие и вспомогательные вещества, а также хронические коморбидные противопоказания.",
+      "item": [
+        {
+          "name": "1. Positive: Safe Medication Check (is_safe: true)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при проверке безопасности\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Препарат полностью безопасен (is_safe: true, has_critical: false)\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.data.is_safe).to.eql(true);",
+                  "    pm.expect(json.data.has_critical).to.eql(false);",
+                  "    pm.expect(json.data.warnings).to.be.an('array').and.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"profile_id\": 1,\n    \"reference_medicine_id\": 3\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/medication-safety/check",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medication-safety",
+                "check"
+              ]
+            },
+            "description": "Проверка безопасного препарата (Парацетамол для профиля Анна). Аллергий и противопоказаний нет, возвращается is_safe: true."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Duplicate Active Substance (Warning: Ibuprofen / Nurofen M01AE01)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при проверке дублирования\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Обнаружено лекарственное перекрытие МНН (is_safe: false)\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.data.is_safe).to.eql(false);",
+                  "    var hasDupWarning = json.data.warnings.some(function(w) { return w.includes(\"дублирование действующего вещества\"); });",
+                  "    pm.expect(hasDupWarning).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"profile_id\": 2,\n    \"reference_medicine_id\": 2\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/medication-safety/check",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medication-safety",
+                "check"
+              ]
+            },
+            "description": "Детекция дублирования: бабушка Елена уже принимает Ибупрофен 400 мг; попытка назначить Нурофен Экспресс (МНН Ибупрофен, АТХ M01AE01) возвращает предупреждение о передозировке."
+          },
+          "response": []
+        },
+        {
+          "name": "3. Active Substance Allergy (Critical Warning: Penicillin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при проверке аллергии\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Критическая опасность: аллергия на пенициллиновый ряд (has_critical: true)\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.data.is_safe).to.eql(false);",
+                  "    pm.expect(json.data.has_critical).to.eql(true);",
+                  "    var hasPenWarning = json.data.warnings.some(function(w) { return w.includes(\"пенициллиновый ряд\"); });",
+                  "    pm.expect(hasPenWarning).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"profile_id\": 3,\n    \"reference_medicine_id\": 4\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/medication-safety/check",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medication-safety",
+                "check"
+              ]
+            },
+            "description": "Критическая угроза: у сына Миши аллергия на пенициллины. Назначение антибиотика Амоксициллин (J01CA04) блокируется с has_critical: true."
+          },
+          "response": []
+        },
+        {
+          "name": "4. Excipient Allergy (Warning: Lactose in Suprastin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при проверке эксципиентов\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Выявлена непереносимость вспомогательного вещества (лактоза)\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.data.is_safe).to.eql(false);",
+                  "    var hasLactWarning = json.data.warnings.some(function(w) { return w.includes(\"лактоз\"); });",
+                  "    pm.expect(hasLactWarning).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"profile_id\": 1,\n    \"reference_medicine_id\": 5\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/medication-safety/check",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medication-safety",
+                "check"
+              ]
+            },
+            "description": "Непереносимость эксципиентов: у Анны лактазная недостаточность. Супрастин содержит лактозы моногидрат 116 мг в составе таблетки."
+          },
+          "response": []
+        },
+        {
+          "name": "5. Chronic Contraindication (Warning: Vasoconstrictor + Hypertension)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при проверке коморбидности\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Клиническое противопоказание: сосудосуживающие при гипертензии\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.data.is_safe).to.eql(false);",
+                  "    var hasHyperWarning = json.data.warnings.some(function(w) { return w.includes(\"артериальной гипертензией\"); });",
+                  "    pm.expect(hasHyperWarning).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"profile_id\": 2,\n    \"reference_medicine_id\": 8\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/medication-safety/check",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medication-safety",
+                "check"
+              ]
+            },
+            "description": "Клиническое противопоказание: у бабушки Елены артериальная гипертензия. Називин спрей (оксиметазолин) обладает вазоконстрикторным действием и повышает АД."
+          },
+          "response": []
+        },
+        {
+          "name": "6. Validation Failure: Missing profile_id (422 Unprocessable)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 422 Unprocessable Entity при неполных параметрах\", function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test(\"Валидатор возвращает ошибку обязательного поля profile_id\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.errors).to.have.property('profile_id');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"reference_medicine_id\": 1\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/medication-safety/check",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medication-safety",
+                "check"
+              ]
+            },
+            "description": "Проверка валидации Form Request: при отсутствии обязательного profile_id API возвращает 422 Unprocessable Entity с описанием ошибки."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "05. Box Sharing & Members",
+      "description": "Семейный шеринг аптечек: получение списка участников, приглашение родственников с ролями (owner, editor, viewer) и исключение участников.",
+      "item": [
+        {
+          "name": "Get Box Members (GET /api/medicine-boxes/{id}/members)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при получении участников аптечки\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Ответ содержит список участников аптечки с ролями\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data).to.be.an('array');",
+                  "    pm.expect(json.data.length).to.be.above(0);",
+                  "    pm.expect(json.data[0]).to.have.property('role');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/medicine-boxes/1/members",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medicine-boxes",
+                "1",
+                "members"
+              ]
+            },
+            "description": "Получение списка всех пользователей, имеющих доступ к домашней аптечке."
+          },
+          "response": []
+        },
+        {
+          "name": "Invite Member to Box (POST /api/medicine-boxes/{id}/members)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var email = pm.collectionVariables.get('registered_email') || 'invited_user@family.test';",
+                  "pm.variables.set('target_invite_email', email);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 201 Created при приглашении участника в аптечку\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Участник успешно добавлен с ролью editor\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data.role).to.eql('editor');",
+                  "    if (json.data.id) {",
+                  "        pm.collectionVariables.set('member_id', json.data.id.toString());",
+                  "    }",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{target_invite_email}}\",\n    \"role\": \"editor\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/medicine-boxes/1/members",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medicine-boxes",
+                "1",
+                "members"
+              ]
+            },
+            "description": "Приглашение нового члена семьи в аптечку с правами редактора (editor)."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Member from Box (DELETE /api/medicine-boxes/{id}/members/{user_id})",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var mid = pm.collectionVariables.get('member_id') || pm.collectionVariables.get('registered_user_id') || '2';",
+                  "pm.variables.set('target_member_id', mid);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при исключении участника из аптечки\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Участник успешно исключен\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('message');",
+                  "    pm.expect(json.message).to.include('исключен');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/medicine-boxes/1/members/{{target_member_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medicine-boxes",
+                "1",
+                "members",
+                "{{target_member_id}}"
+              ]
+            },
+            "description": "Исключение участника из аптечки (доступно только владельцу)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "06. Dashboard & Notifications",
+      "description": "Сводный дашборд ключевых показателей (счетчики препаратов и приёмов) и системные уведомления.",
+      "item": [
+        {
+          "name": "Get Dashboard Metrics (GET /api/dashboard)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при получении метрик дашборда\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Дашборд содержит агрегированные счетчики аптечки\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data).to.have.property('total_medicines');",
+                  "    pm.expect(json.data).to.have.property('expiring_medicines');",
+                  "    pm.expect(json.data).to.have.property('expired_medicines');",
+                  "    pm.expect(json.data).to.have.property('today_intakes');",
+                  "    pm.expect(json.data.today_intakes).to.have.property('total');",
+                  "    pm.expect(json.data.today_intakes).to.have.property('taken');",
+                  "    pm.expect(json.data.today_intakes).to.have.property('remaining');",
+                  "    pm.expect(json.data).to.have.property('active_courses_count');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/dashboard",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "dashboard"
+              ]
+            },
+            "description": "Получение сводных аналитических показателей: общее число медикаментов, истекающие, просроченные и приёмы на сегодня."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Notifications List (GET /api/notifications)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при получении списка уведомлений\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Ответ содержит массив уведомлений пользователя\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('data');",
+                  "    pm.expect(json.data).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/notifications",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "notifications"
+              ]
+            },
+            "description": "Список системных оповещений (контроль сроков годности и напоминания о приёмах)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Account & Smart Stock",
+      "description": "Эндпоинты управления учетной записью в соответствии с 152-ФЗ (смена пароля, согласие на обработку ПДн, SoftDelete аккаунта), а также умный учет запасов (FEFO-Opened, условия хранения room/fridge, пороговые остатки low_stock_threshold).",
+      "item": [
+        {
+          "name": "1. Update Password (PUT /api/auth/password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при успешной смене пароля\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Подтверждение смены пароля в сообщении\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('message');",
+                  "    pm.expect(json.message).to.include('успешно изменен');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"current_password\": \"{{valid_password}}\",\n    \"password\": \"NewSecretPassword!2026\",\n    \"password_confirmation\": \"NewSecretPassword!2026\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "password"
+              ]
+            },
+            "description": "Смена пароля с обязательной проверкой текущего пароля и хешированием по алгоритму Argon2id."
+          },
+          "response": []
+        },
+        {
+          "name": "2. Restore Original Password (PUT /api/auth/password)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при возврате исходного пароля\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"current_password\": \"NewSecretPassword!2026\",\n    \"password\": \"{{valid_password}}\",\n    \"password_confirmation\": \"{{valid_password}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/password",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "password"
+              ]
+            },
+            "description": "Возврат тестового пароля к исходному значению для корректности последующих автопрогонов."
+          },
+          "response": []
+        },
+        {
+          "name": "3. 152-FZ Consent: Registration with Terms Accepted (POST /api/auth/register)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var ts = Date.now();",
+                  "pm.collectionVariables.set('consent_user_email', 'consent_' + ts + '@family.test');"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 201 Created при согласии с условиями обработки ПДн\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Зафиксировано согласие 152-ФЗ и флаг sync_enabled: false\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('token');",
+                  "    pm.expect(json.user.sync_enabled).to.eql(false);",
+                  "    pm.collectionVariables.set('temp_user_token', json.token);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Пользователь 152-ФЗ\",\n    \"email\": \"{{consent_user_email}}\",\n    \"password\": \"Password123!\",\n    \"password_confirmation\": \"Password123!\",\n    \"terms_accepted\": true,\n    \"sync_enabled\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Регистрация нового пользователя с фиксацией согласия на обработку персональных данных (152-ФЗ) и локальным режимом (sync_enabled = false)."
+          },
+          "response": []
+        },
+        {
+          "name": "4. 152-FZ Rejection: Missing Terms Accepted (POST /api/auth/register -> 422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 422 Unprocessable Entity без согласия 152-ФЗ\", function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test(\"Отказ в регистрации по полю terms_accepted\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.errors).to.have.property('terms_accepted');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"name\": \"Без согласия\",\n    \"email\": \"noterms@family.test\",\n    \"password\": \"Password123!\",\n    \"password_confirmation\": \"Password123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Попытка регистрации без подтверждения пользовательского соглашения и согласия на обработку персональных данных."
+          },
+          "response": []
+        },
+        {
+          "name": "5. Smart Stock: Create Medicine with Storage Condition (POST /api/medicines)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 201 Created при добавлении препарата с условиями хранения\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "pm.test(\"Сохранены условия хранения (fridge), days_after_opening и low_stock_threshold\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.data.storage_condition).to.eql('fridge');",
+                  "    pm.expect(json.data.days_after_opening).to.eql(28);",
+                  "    pm.expect(parseFloat(json.data.low_stock_threshold)).to.eql(1.0);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"medicine_box_id\": 1,\n    \"custom_trade_name\": \"Инсулин Протафан 100 МЕ\",\n    \"quantity\": 5.0,\n    \"quantity_unit\": \"unit\",\n    \"expiration_date\": \"2027-12-31\",\n    \"storage_condition\": \"fridge\",\n    \"days_after_opening\": 28,\n    \"low_stock_threshold\": 1.0,\n    \"notes\": \"Хранить в холодильнике при температуре от +2 до +8 C\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/medicines",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medicines"
+              ]
+            },
+            "description": "Создание физической упаковки с указанием температурного режима хранения (fridge), динамического срока после вскрытия (28 дней) и порога минимального остатка."
+          },
+          "response": []
+        },
+        {
+          "name": "6. Delete Account (DELETE /api/auth/account)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 200 OK при мягком удалении аккаунта\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Сообщение об успешном удалении персональных данных\", function () {",
+                  "    var json = pm.response.json();",
+                  "    pm.expect(json.message).to.include('успешно удалены');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{temp_user_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"current_password\": \"Password123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/account",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "account"
+              ]
+            },
+            "description": "Реализация «Права на забвение» (152-ФЗ / GDPR): отзыв токенов и каскадное SoftDelete аккаунта и личных аптечек."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "07. AppSec: Rate Limiting & IDOR",
+      "description": "Проверка механизмов троттлинга запросов (Laravel RateLimiter 429), защиты от IDOR (Laravel Policies 403) и валидации Form Request (422).",
+      "item": [
+        {
+          "name": "2.1. Brute-force: Попытка 1 (Допустимый лимит)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "var freshTarget = 'brute_' + Date.now() + '@target.test';",
+                  "pm.collectionVariables.set('brute_email', freshTarget);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Попытка 1: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{brute_email}}\",\n    \"password\": \"guess_attempt_1\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.2. Brute-force: Попытка 2 (Допустимый лимит)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Попытка 2: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{brute_email}}\",\n    \"password\": \"guess_attempt_2\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.3. Brute-force: Попытка 3 (Допустимый лимит)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Попытка 3: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{brute_email}}\",\n    \"password\": \"guess_attempt_3\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.4. Brute-force: Попытка 4 (Допустимый лимит)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Попытка 4: Запрос обработан шлюзом (401 Unauthorized, не заблокирован)\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{brute_email}}\",\n    \"password\": \"guess_attempt_4\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.5. Brute-force: Попытка 5 (Граничный лимит)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Попытка 5: Запрос исчерпывает разрешенную квоту (5 из 5)\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([401, 422]);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{brute_email}}\",\n    \"password\": \"guess_attempt_5\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.6. Brute-force: Попытка 6 (Превышение лимита -> 429 Too Many Requests)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 429 Too Many Requests при превышении лимита перебора\", function () {",
+                  "    pm.response.to.have.status(429);",
+                  "});",
+                  "",
+                  "pm.test(\"Сервер возвращает заголовок Retry-After или X-RateLimit-Reset\", function () {",
+                  "    var hasRetryAfter = pm.response.headers.has(\"Retry-After\");",
+                  "    var hasRateLimitReset = pm.response.headers.has(\"X-RateLimit-Reset\");",
+                  "    pm.expect(hasRetryAfter || hasRateLimitReset).to.be.true;",
+                  "});",
+                  "",
+                  "pm.test(\"Тело ответа содержит понятное уведомление об ограничении частоты запросов\", function () {",
+                  "    var responseText = pm.response.text();",
+                  "    pm.expect(responseText.toLowerCase()).to.match(/(too many attempts|too many requests|превышен лимит)/i);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{brute_email}}\",\n    \"password\": \"guess_attempt_6_attack\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Шестой запрос за одну минуту с тем же IP и целевым логином. Система обязана отклонить запрос с HTTP 429."
+          },
+          "response": []
+        },
+        {
+          "name": "2.7. IDOR: Попытка чтения чужой аптечки (GET /api/medicine-boxes/999)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 403 Forbidden или 404 Not Found (IDOR заблокирован)\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([403, 404]);",
+                  "});",
+                  "",
+                  "pm.test(\"Отсутствует утечка медицинских данных и чужих препаратов\", function () {",
+                  "    var responseText = pm.response.text();",
+                  "    pm.expect(responseText).to.not.include(\"medicines\");",
+                  "    pm.expect(responseText).to.not.include(\"barcode\");",
+                  "    pm.expect(responseText).to.not.include(\"custom_trade_name\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/medicine-boxes/{{victim_box_id}}",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medicine-boxes",
+                "{{victim_box_id}}"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "2.8. Валидация: SQL-инъекция в параметрах создания лекарства (422 Unprocessable)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Статус ответа 422 Unprocessable Entity (SQLi обезврежен валидацией)\", function () {",
+                  "    pm.response.to.have.status(422);",
+                  "});",
+                  "",
+                  "pm.test(\"Сервер не упал с ошибкой СУБД 500 (Отсутствует утечка SQLSTATE / синтаксиса)\", function () {",
+                  "    pm.expect(pm.response.code).to.not.eql(500);",
+                  "    var responseText = pm.response.text();",
+                  "    pm.expect(responseText).to.not.include(\"SQLSTATE\");",
+                  "    pm.expect(responseText).to.not.include(\"syntax error\");",
+                  "});",
+                  "",
+                  "pm.test(\"Ответ содержит структурированный список ошибок валидации полей\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('errors');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{bearer_token}}",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"medicine_box_id\": 1,\n    \"custom_trade_name\": \"Парацетамол' OR '1'='1' -- \",\n    \"barcode\": \"' OR 1=1; DROP TABLE medicines; --\",\n    \"quantity\": 10,\n    \"quantity_unit\": \"pill\",\n    \"expiration_date\": \"2027-12-31\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/medicines",
+              "host": [
+                "{{base_url}}"
+              ],
+              "path": [
+                "medicines"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
