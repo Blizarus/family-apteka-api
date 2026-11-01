@@ -70,6 +70,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 6. Физические лекарства в аптечках (StoreMedicineRequest, шифрование полей)
     Route::post('/medicines/{medicine}/open', [MedicineController::class, 'open']);
+    Route::post('/medicines/{medicine}/move', [MedicineController::class, 'move']);
     Route::apiResource('medicines', MedicineController::class);
 
     // 7. Курсы приёма (IntakeCoursePolicy, генерация расписания и 14-дневных логов)

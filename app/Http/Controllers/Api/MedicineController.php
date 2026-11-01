@@ -203,4 +203,32 @@ class MedicineController extends Controller
             'data' => $medicine->fresh(['referenceMedicine', 'medicineBox']),
         ], 200);
     }
+
+    /**
+     * Перемещение препарата в другую аптечку (T-6).
+     * Проверяет права доступа к исходной и целевой аптечкам (защита от IDOR).
+     */
+    public function move(Request $request, Medicine $medicine): JsonResponse
+    {
+        Gate::authorize('update', $medicine->medicineBox);
+
+        $validated = $request->validate([
+            'target_box_id' => ['required', 'integer', 'exists:medicine_boxes,id'],
+        ], [
+            'target_box_id.required' => 'Необходимо указать целевую аптечку.',
+            'target_box_id.exists' => 'Указанная целевая аптечка не найдена.',
+        ]);
+
+        $targetBox = MedicineBox::findOrFail($validated['target_box_id']);
+        Gate::authorize('update', $targetBox);
+
+        $sourceBoxName = $medicine->medicineBox?->name ?? 'исходной';
+        $medicine->medicine_box_id = $targetBox->id;
+        $medicine->save();
+
+        return response()->json([
+            'message' => "Препарат успешно перемещён из аптечки «{$sourceBoxName}» в «{$targetBox->name}».",
+            'data' => $medicine->fresh(['referenceMedicine', 'medicineBox']),
+        ], 200);
+    }
 }
