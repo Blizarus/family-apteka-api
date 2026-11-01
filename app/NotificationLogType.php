@@ -10,4 +10,5 @@ enum NotificationLogType: string
     case INTAKE_REMINDER = 'intake_reminder';
     case OPENED_EXPIRED = 'opened_expired';
     case LOW_STOCK = 'low_stock';
+    case PUSH_TEST = 'push_test';
 }

@@ -57,6 +57,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // 2. Системные уведомления
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
+    Route::post('/notifications/fcm-token', [NotificationController::class, 'registerFcmToken']);
+    Route::post('/notifications/test-push', [NotificationController::class, 'sendTestPush']);
 
     // 3. Профили членов семьи (Анна, Бабушка Елена, Сын Миша)
     Route::apiResource('profiles', ProfileController::class);

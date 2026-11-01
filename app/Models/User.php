@@ -34,6 +34,8 @@ class User extends Authenticatable
         'is_admin',
         'is_blocked',
         'blocked_at',
+        'fcm_token',
+        'device_platform',
     ];
     protected $hidden = ['password'];
     protected function casts(): array
