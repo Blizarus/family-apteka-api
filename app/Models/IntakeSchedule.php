@@ -9,7 +9,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class IntakeSchedule extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'intake_course_id',
+        'frequency_type',
+        'time_slots',
+        'interval_hours',
+        'interval_days',
+        'days_of_week',
+        'valid_from',
+        'valid_until',
+    ];
     protected function casts(): array{
         return [
             'frequency_type' => IntakeScheduleFrequencyType::class,

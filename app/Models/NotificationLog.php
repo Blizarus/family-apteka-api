@@ -9,7 +9,18 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
 
 class NotificationLog extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'user_id',
+        'entity_type',
+        'entity_id',
+        'medicine_id',
+        'type',
+        'channel',
+        'title',
+        'message',
+        'status',
+        'sent_at',
+    ];
 
     protected function casts(): array
     {

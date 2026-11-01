@@ -8,7 +8,22 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class ReferenceMedicineProposal extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'user_id',
+        'barcode',
+        'raw_barcode',
+        'raw_trade_name',
+        'raw_manufacturer',
+        'raw_form',
+        'raw_dosage',
+        'image_url',
+        'status',
+        'admin_comment',
+        'admin_notes',
+        'reviewed_at',
+        'approved_at',
+        'approved_by_user_id',
+    ];
 
     protected function casts(): array{
         return [

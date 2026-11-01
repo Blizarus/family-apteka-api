@@ -8,7 +8,18 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class IntakeLog extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'intake_course_id',
+        'intake_schedule_id',
+        'medicine_id',
+        'scheduled_time',
+        'taken_time',
+        'client_created_at',
+        'quantity_taken',
+        'status',
+        'skipped_reason',
+        'skip_reason',
+    ];
 
     protected function casts(): array
     {

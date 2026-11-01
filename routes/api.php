@@ -75,7 +75,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('medicines', MedicineController::class);
 
     // 7. Курсы приёма (IntakeCoursePolicy, генерация расписания и 14-дневных логов)
-    Route::apiResource('intake-courses', IntakeCourseController::class)->only(['index', 'show', 'store', 'destroy']);
+    Route::post('/intake-courses/{intakeCourse}/extend', [IntakeCourseController::class, 'extend']);
+    Route::apiResource('intake-courses', IntakeCourseController::class)->only(['index', 'show', 'store', 'update', 'destroy']);
 
     // 8. Клиническая безопасность (Clinical Decision Support - CDS)
     Route::post('/medication-safety/check', [MedicationSafetyController::class, 'check']);

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreIntakeCourseRequest;
+use App\Http\Requests\UpdateIntakeCourseRequest;
 use App\IntakeLogStatus;
 use App\IntakeScheduleFrequencyType;
 use App\Models\IntakeCourse;
@@ -159,6 +160,117 @@ class IntakeCourseController extends Controller
             'warnings' => $safetyReport['warnings'],
             'safety' => $safetyReport,
         ], 201);
+    }
+
+    /**
+     * Обновление существующего курса приёма.
+     * Защита от IDOR через IntakeCoursePolicy::update.
+     */
+    public function update(UpdateIntakeCourseRequest $request, IntakeCourse $intakeCourse): JsonResponse
+    {
+        Gate::authorize('update', $intakeCourse);
+
+        $validated = $request->validated();
+        if ($request->has('is_active')) {
+            $validated['is_active'] = $request->boolean('is_active');
+        }
+
+        $intakeCourse->update($validated);
+
+        // Если курс завершен досрочно (is_active = false), отменяем (удаляем) все будущие запланированные приёмы
+        if (array_key_exists('is_active', $validated) && ! $validated['is_active']) {
+            $intakeCourse->intakeLogs()
+                ->where('status', IntakeLogStatus::SCHEDULED)
+                ->where('scheduled_time', '>=', Carbon::now())
+                ->delete();
+        }
+
+        return response()->json([
+            'message' => 'Курс приёма успешно обновлен.',
+            'data' => $intakeCourse->fresh(['profile', 'medicine.referenceMedicine', 'intakeSchedules', 'intakeLogs']),
+        ], 200);
+    }
+
+    /**
+     * Продление активного курса приёма: генерация следующих 14 дней логов.
+     * Защита от IDOR через IntakeCoursePolicy::update.
+     */
+    public function extend(Request $request, IntakeCourse $intakeCourse): JsonResponse
+    {
+        Gate::authorize('update', $intakeCourse);
+
+        if (! $intakeCourse->is_active) {
+            return response()->json([
+                'message' => 'Нельзя продлить завершенный курс приёма.',
+            ], 422);
+        }
+
+        $logsCreated = DB::transaction(function () use ($intakeCourse) {
+            $today = Carbon::today();
+            $lastLog = $intakeCourse->intakeLogs()->orderByDesc('scheduled_time')->first();
+
+            if ($lastLog) {
+                $lastLogDate = Carbon::parse($lastLog->scheduled_time)->startOfDay();
+                $nextDay = $lastLogDate->copy()->addDay();
+                $beginDate = $nextDay->greaterThan($today) ? $nextDay : $today->copy();
+            } else {
+                $beginDate = $today->copy();
+            }
+
+            $targetEndDate = $beginDate->copy()->addDays(13); // 14 дней включительно
+
+            if (! empty($intakeCourse->end_date)) {
+                $courseEnd = Carbon::parse($intakeCourse->end_date)->startOfDay();
+                if ($courseEnd->lessThan($targetEndDate)) {
+                    $targetEndDate = $courseEnd;
+                }
+            }
+
+            $schedules = $intakeCourse->intakeSchedules;
+            if ($schedules->isEmpty()) {
+                $schedules = collect([
+                    IntakeSchedule::create([
+                        'intake_course_id' => $intakeCourse->id,
+                        'frequency_type' => IntakeScheduleFrequencyType::DAILY,
+                        'time_slots' => ['08:00'],
+                        'valid_from' => $intakeCourse->start_date,
+                        'valid_until' => $intakeCourse->end_date,
+                    ]),
+                ]);
+            }
+
+            $logsCount = 0;
+            if ($beginDate->lessThanOrEqualTo($targetEndDate)) {
+                for ($date = $beginDate->copy(); $date->lessThanOrEqualTo($targetEndDate); $date->addDay()) {
+                    foreach ($schedules as $schedule) {
+                        $timeSlots = is_array($schedule->time_slots) ? $schedule->time_slots : ['08:00'];
+                        foreach ($timeSlots as $slotTime) {
+                            [$hour, $minute] = array_pad(explode(':', (string) $slotTime), 2, '00');
+                            $scheduledDateTime = $date->copy()->setTime((int) $hour, (int) $minute, 0);
+
+                            IntakeLog::create([
+                                'intake_course_id' => $intakeCourse->id,
+                                'intake_schedule_id' => $schedule->id,
+                                'medicine_id' => $intakeCourse->medicine_id,
+                                'scheduled_time' => $scheduledDateTime,
+                                'taken_time' => null,
+                                'quantity_taken' => $intakeCourse->dosage_quantity,
+                                'status' => IntakeLogStatus::SCHEDULED,
+                            ]);
+                            $logsCount++;
+                        }
+                    }
+                }
+            }
+
+            return $logsCount;
+        });
+
+        return response()->json([
+            'message' => 'Курс приёма успешно продлен. Сгенерировано напоминаний: ' . $logsCreated,
+            'logs_created' => $logsCreated,
+            'data' => $intakeCourse->fresh(['profile', 'medicine.referenceMedicine', 'intakeSchedules']),
+        ], 200);
     }
 
     /**

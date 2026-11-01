@@ -9,7 +9,27 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ReferenceMedicine extends Model
 {
-    protected $guarded = [];
+    protected $fillable = [
+        'trade_name',
+        'inn',
+        'dosage_form',
+        'dosage',
+        'pack_size',
+        'manufacturer',
+        'country',
+        'atc_code',
+        'barcode',
+        'is_prescription',
+        'storage_condition',
+        'days_after_opening',
+        'image_url',
+        'leaflet_pdf_url',
+        'status',
+        'instructions',
+        'composition',
+        'allergen_tags',
+        'chronic_contraindications',
+    ];
     protected function casts(): array
     {
         return [

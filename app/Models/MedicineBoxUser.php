@@ -9,7 +9,15 @@ use Illuminate\Database\Eloquent\Relations\Pivot;
 class MedicineBoxUser extends Pivot
 {
     protected $table = 'medicine_box_users';
-    protected $guarded = [];
+
+    protected $guarded = ['*'];
+
+    protected $fillable = [
+        'medicine_box_id',
+        'user_id',
+        'role',
+        'invited_by_user_id',
+    ];
     protected function casts(): array
     {
         return [
