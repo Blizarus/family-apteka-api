@@ -254,7 +254,7 @@ class IntakeLogController extends Controller
 
         return DB::transaction(function () use ($request, $id, $userProfileIds) {
             $intakeLog = IntakeLog::lockForUpdate()
-                ->with(['intakeCourse.medicine', 'medicine'])
+                ->with('intakeCourse')
                 ->findOrFail($id);
 
             // Проверка прав доступа: лог должен относиться к профилю текущего пользователя
@@ -340,7 +340,7 @@ class IntakeLogController extends Controller
                 'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
                 'remaining_quantity' => (float) $medicine->quantity,
             ], 200);
-        });
+        }, 5);
     }
 
     /**

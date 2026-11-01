@@ -1,0 +1,18 @@
+{
+    "$schema": "vendor/infection/infection/resources/schema.json",
+    "source": {
+        "directories": [
+            "app/Services",
+            "app/Console/Commands"
+        ]
+    },
+    "logs": {
+        "text": "infection.log",
+        "summary": "infection-summary.log",
+        "json": "infection.json"
+    },
+    "mutators": {
+        "@default": true
+    },
+    "testFramework": "phpunit"
+}
