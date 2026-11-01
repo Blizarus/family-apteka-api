@@ -108,6 +108,7 @@ class IntakeLogController extends Controller
             'quantity'    => 'nullable|numeric|min:0.1|max:10',
             'symptom'     => 'nullable|string|max:255',
             'taken_at'    => 'nullable|date',
+            'confirm_without_stock' => 'nullable|boolean',
         ]);
 
         $user = $request->user();
@@ -137,9 +138,60 @@ class IntakeLogController extends Controller
         $dose = (float) ($validated['quantity'] ?? 1.0);
         $takenAt = ! empty($validated['taken_at']) ? Carbon::parse($validated['taken_at']) : Carbon::now();
         $symptom = $validated['symptom'] ?? 'По требованию (симптом)';
+        $confirmWithoutStock = $request->boolean('confirm_without_stock');
 
-        [$log, $newRemaining] = DB::transaction(function () use ($profile, $medicine, $dose, $takenAt, $symptom) {
-            // 1. Курс "По требованию" (PRN)
+        return DB::transaction(function () use ($profile, $validated, $dose, $takenAt, $symptom, $confirmWithoutStock) {
+            $medicine = Medicine::lockForUpdate()->with(['referenceMedicine'])->findOrFail($validated['medicine_id']);
+            $currentStock = (float) $medicine->quantity;
+
+            // Проверка наличия физического остатка
+            if ($currentStock < $dose) {
+                if (! $confirmWithoutStock) {
+                    return response()->json([
+                        'message' => 'Недостаточно препарата в аптечке для списания остатка. Подтвердите приём без списания.',
+                        'stock_warning' => true,
+                        'requires_confirmation' => true,
+                        'remaining_quantity' => $currentStock,
+                    ], 409);
+                }
+
+                // Подтверждено пользователем: фиксируем приём без списания остатка
+                $course = IntakeCourse::firstOrCreate(
+                    [
+                        'profile_id' => $profile->id,
+                        'medicine_id' => $medicine->id,
+                        'dosage_instruction' => 'По требованию (PRN)',
+                    ],
+                    [
+                        'title' => 'По требованию: ' . ($medicine->custom_trade_name ?: ($medicine->referenceMedicine?->trade_name ?? 'Медикамент')),
+                        'start_date' => Carbon::today(),
+                        'end_date' => null,
+                        'dosage_quantity' => $dose,
+                        'notes' => 'Симптоматический приём по необходимости',
+                        'is_active' => true,
+                    ]
+                );
+
+                $log = IntakeLog::create([
+                    'intake_course_id' => $course->id,
+                    'intake_schedule_id' => null,
+                    'medicine_id' => $medicine->id,
+                    'scheduled_time' => $takenAt,
+                    'taken_time' => $takenAt,
+                    'quantity_taken' => $dose,
+                    'status' => IntakeLogStatus::TAKEN,
+                    'skipped_reason' => $symptom,
+                ]);
+
+                return response()->json([
+                    'message' => 'Приём зафиксирован без списания остатка (подтверждено пользователем)',
+                    'stock_warning' => true,
+                    'data' => $log->load(['medicine', 'intakeCourse.profile']),
+                    'remaining_quantity' => $currentStock,
+                ], 201);
+            }
+
+            // Остатка достаточно: фиксируем курс и лог, атомарно списываем остаток
             $course = IntakeCourse::firstOrCreate(
                 [
                     'profile_id' => $profile->id,
@@ -156,7 +208,6 @@ class IntakeLogController extends Controller
                 ]
             );
 
-            // 2. Лог приёма
             $log = IntakeLog::create([
                 'intake_course_id' => $course->id,
                 'intake_schedule_id' => null,
@@ -168,82 +219,128 @@ class IntakeLogController extends Controller
                 'skipped_reason' => $symptom,
             ]);
 
-            // 3. Списание остатка в аптечке
-            $newQty = max(0.0, ((float) $medicine->quantity) - $dose);
-            $medicine->quantity = $newQty;
-            if ($newQty <= 0) {
+            DB::table('medicines')
+                ->where('id', $medicine->id)
+                ->where('quantity', '>=', $dose)
+                ->decrement('quantity', $dose);
+
+            $medicine->refresh();
+            if ($medicine->quantity <= 0) {
                 $medicine->status = MedicineStatus::FINISHED;
+                $medicine->save();
             }
-            $medicine->save();
 
-            return [$log, $newQty];
+            return response()->json([
+                'message' => 'Разовый приём успешно зафиксирован, остаток списан.',
+                'data' => $log->load(['medicine', 'intakeCourse.profile']),
+                'remaining_quantity' => (float) $medicine->quantity,
+            ], 201);
         });
-
-        return response()->json([
-            'message' => 'Разовый приём успешно зафиксирован, остаток списан.',
-            'data' => $log->load(['medicine', 'intakeCourse.profile']),
-            'remaining_quantity' => $newRemaining,
-        ], 201);
     }
 
     /**
      * Отметка о приеме лекарства (Take).
      * Требование ТЗ:
      * 1) Менять статус лога на 'taken' и фиксировать taken_time;
-     * 2) Автоматически вычитать 1 (или назначенную дозу) из остатка упаковки (medicines.quantity).
+     * 2) Использовать DB::transaction с пессимистической блокировкой lockForUpdate;
+     * 3) Проверка идемпотентности: повторный вызов не списывает остаток дважды;
+     * 4) Проверка физического остатка: при нехватке требовать confirm_without_stock (409)
+     *    либо фиксировать приём без списания при наличии флага (200).
      */
     public function take(Request $request, int $id): JsonResponse
     {
         $user = $request->user();
         $userProfileIds = $user->profiles()->pluck('id');
 
-        $intakeLog = IntakeLog::with(['intakeCourse.medicine', 'medicine'])->findOrFail($id);
+        return DB::transaction(function () use ($request, $id, $userProfileIds) {
+            $intakeLog = IntakeLog::lockForUpdate()
+                ->with(['intakeCourse.medicine', 'medicine'])
+                ->findOrFail($id);
 
-        // Проверка прав доступа: лог должен относиться к профилю текущего пользователя
-        if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
-            return response()->json(['message' => 'Доступ к данному приему запрещен (IDOR).'], 403);
-        }
+            // Проверка прав доступа: лог должен относиться к профилю текущего пользователя
+            if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
+                return response()->json(['message' => 'Доступ к данному приему запрещен (IDOR).'], 403);
+            }
 
-        $medicine = $intakeLog->medicine ?? $intakeLog->intakeCourse->medicine;
+            $medicineId = $intakeLog->medicine_id ?? $intakeLog->intakeCourse?->medicine_id;
+            $medicine = $medicineId ? Medicine::lockForUpdate()->find($medicineId) : null;
 
-        // Идемпотентность: если прием уже был зафиксирован ранее, не списываем остаток повторно
-        if ($intakeLog->status === IntakeLogStatus::TAKEN) {
-            return response()->json([
-                'message' => 'Приём лекарства уже был зафиксирован ранее.',
-                'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
-                'remaining_quantity' => (float) ($medicine?->fresh()->quantity ?? 0),
-            ], 200);
-        }
+            // Идемпотентность: если прием уже был зафиксирован ранее, не списывать повторно
+            if ($intakeLog->status === IntakeLogStatus::TAKEN) {
+                return response()->json([
+                    'message' => 'Приём лекарства уже был зафиксирован ранее.',
+                    'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                    'remaining_quantity' => (float) ($medicine?->quantity ?? 0),
+                ], 200);
+            }
 
-        // Атомарная транзакция: обновление статуса лога и списание остатка медикамента
-        DB::transaction(function () use ($intakeLog, &$medicine) {
+            $amountToDeduct = (float) ($intakeLog->quantity_taken ?: ($intakeLog->intakeCourse?->dosage_quantity ?? 1.0));
+            if (! $intakeLog->quantity_taken) {
+                $intakeLog->quantity_taken = $amountToDeduct;
+            }
+
+            // Если физическое лекарство не привязано к логу или курсу
+            if (! $medicine) {
+                $intakeLog->status = IntakeLogStatus::TAKEN;
+                $intakeLog->taken_time = Carbon::now();
+                $intakeLog->save();
+
+                return response()->json([
+                    'message' => 'Приём лекарства успешно зафиксирован.',
+                    'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                    'remaining_quantity' => 0.0,
+                ], 200);
+            }
+
+            $currentStock = (float) $medicine->quantity;
+
+            // Проверка наличия физического остатка
+            if ($currentStock < $amountToDeduct) {
+                // Если передан флаг confirm_without_stock:
+                if ($request->boolean('confirm_without_stock')) {
+                    $intakeLog->status = IntakeLogStatus::TAKEN;
+                    $intakeLog->taken_time = Carbon::now();
+                    $intakeLog->save();
+
+                    return response()->json([
+                        'message' => 'Приём зафиксирован без списания остатка (подтверждено пользователем)',
+                        'stock_warning' => true,
+                        'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                        'remaining_quantity' => $currentStock,
+                    ], 200);
+                }
+
+                // Если флаг confirm_without_stock НЕ передан:
+                return response()->json([
+                    'message' => 'Недостаточно препарата в аптечке для списания остатка. Подтвердите приём без списания.',
+                    'stock_warning' => true,
+                    'requires_confirmation' => true,
+                    'remaining_quantity' => $currentStock,
+                ], 409);
+            }
+
+            // Если остатка достаточно: атомарно списать остаток
             $intakeLog->status = IntakeLogStatus::TAKEN;
             $intakeLog->taken_time = Carbon::now();
-            if (! $intakeLog->quantity_taken) {
-                $intakeLog->quantity_taken = $intakeLog->intakeCourse->dosage_quantity ?? 1;
-            }
             $intakeLog->save();
 
-            // Списание физического остатка препарата
-            $medicine = $intakeLog->medicine ?? $intakeLog->intakeCourse->medicine;
-            if ($medicine) {
-                $amountToDeduct = (float) ($intakeLog->quantity_taken ?? 1);
-                $newQuantity = max(0.0, (float) $medicine->quantity - $amountToDeduct);
-                $medicine->quantity = $newQuantity;
+            DB::table('medicines')
+                ->where('id', $medicine->id)
+                ->where('quantity', '>=', $amountToDeduct)
+                ->decrement('quantity', $amountToDeduct);
 
-                // Если препарат закончился — обновляем статус
-                if ($medicine->quantity <= 0) {
-                    $medicine->status = MedicineStatus::FINISHED;
-                }
+            $medicine->refresh();
+            if ($medicine->quantity <= 0) {
+                $medicine->status = MedicineStatus::FINISHED;
                 $medicine->save();
             }
-        });
 
-        return response()->json([
-            'message' => 'Приём лекарства успешно зафиксирован. Остаток списан.',
-            'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
-            'remaining_quantity' => (float) $medicine?->fresh()->quantity,
-        ], 200);
+            return response()->json([
+                'message' => 'Приём лекарства успешно зафиксирован. Остаток списан.',
+                'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                'remaining_quantity' => (float) $medicine->quantity,
+            ], 200);
+        });
     }
 
     /**

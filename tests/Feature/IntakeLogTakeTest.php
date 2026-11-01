@@ -170,7 +170,7 @@ class IntakeLogTakeTest extends TestCase
         $this->assertEquals(9.0, (float) $this->medicine->quantity);
     }
 
-    public function test_take_when_quantity_is_already_zero_does_not_become_negative(): void
+    public function test_take_with_insufficient_or_zero_stock_without_flag_returns_409(): void
     {
         // Имитируем опустевшую упаковку (остаток 0)
         $this->medicine->update(['quantity' => 0.0]);
@@ -178,7 +178,80 @@ class IntakeLogTakeTest extends TestCase
         $response = $this->actingAs($this->user)
             ->postJson("/api/intake-logs/{$this->log->id}/take");
 
-        $response->assertStatus(200);
+        $response->assertStatus(409)
+            ->assertJson([
+                'message' => 'Недостаточно препарата в аптечке для списания остатка. Подтвердите приём без списания.',
+                'stock_warning' => true,
+                'requires_confirmation' => true,
+                'remaining_quantity' => 0.0,
+            ]);
+
+        // Лог остался запланированным, остаток 0
+        $this->log->refresh();
+        $this->assertEquals(IntakeLogStatus::SCHEDULED, $this->log->status);
+        $this->assertNull($this->log->taken_time);
+
+        $this->medicine->refresh();
+        $this->assertEquals(0.0, (float) $this->medicine->quantity);
+    }
+
+    public function test_take_with_insufficient_stock_and_confirm_flag_records_intake_without_negative_stock(): void
+    {
+        // Остаток 0.5 при дозировке 1.0
+        $this->medicine->update(['quantity' => 0.5]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/intake-logs/{$this->log->id}/take", [
+                'confirm_without_stock' => true,
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'message' => 'Приём зафиксирован без списания остатка (подтверждено пользователем)',
+                'stock_warning' => true,
+                'remaining_quantity' => 0.5,
+            ])
+            ->assertJsonPath('data.status', 'taken');
+
+        // Проверяем статус в БД
+        $this->log->refresh();
+        $this->assertEquals(IntakeLogStatus::TAKEN, $this->log->status);
+        $this->assertNotNull($this->log->taken_time);
+
+        // Физический остаток не уходит в минус и остаётся неизменным (0.5)
+        $this->medicine->refresh();
+        $this->assertEquals(0.5, (float) $this->medicine->quantity);
+    }
+
+    public function test_take_when_quantity_is_zero_with_confirm_flag_does_not_become_negative(): void
+    {
+        $this->medicine->update(['quantity' => 0.0]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/intake-logs/{$this->log->id}/take", [
+                'confirm_without_stock' => true,
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'message' => 'Приём зафиксирован без списания остатка (подтверждено пользователем)',
+                'stock_warning' => true,
+                'remaining_quantity' => 0.0,
+            ]);
+
+        $this->medicine->refresh();
+        $this->assertEquals(0.0, (float) $this->medicine->quantity);
+    }
+
+    public function test_atomic_stock_decrement_sets_status_finished_when_stock_reaches_zero(): void
+    {
+        $this->medicine->update(['quantity' => 1.0]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/intake-logs/{$this->log->id}/take");
+
+        $response->assertStatus(200)
+            ->assertJsonPath('remaining_quantity', 0);
 
         $this->medicine->refresh();
         $this->assertEquals(0.0, (float) $this->medicine->quantity);

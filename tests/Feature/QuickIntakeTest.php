@@ -182,23 +182,58 @@ class QuickIntakeTest extends TestCase
     }
 
     /**
-     * 4. Граничный случай списания остатка в ноль (не уходит в минус).
+     * 4. Нехватка остатка: без подтверждения -> 409, с confirm_without_stock -> 201 без списания, точное списание -> finished.
      */
     public function test_medicine_quantity_does_not_become_negative(): void
     {
         Sanctum::actingAs($this->user);
 
-        // Если остаток был 1 табл., а запросили 2 — проверить, что остаток становится 0 (не уходит в минус)
+        // Если остаток 1 табл., а запросили 2 — без флага возвращается HTTP 409 Conflict
         $this->medicine->update(['quantity' => 1.0]);
 
-        $response = $this->postJson('/api/intake-logs/quick', [
+        $responseConflict = $this->postJson('/api/intake-logs/quick', [
             'medicine_id' => $this->medicine->id,
             'profile_id' => $this->profile->id,
             'quantity' => 2.0,
         ]);
 
-        $response->assertStatus(201);
-        $response->assertJson(['remaining_quantity' => 0.0]);
+        $responseConflict->assertStatus(409)
+            ->assertJson([
+                'stock_warning' => true,
+                'requires_confirmation' => true,
+                'remaining_quantity' => 1.0,
+            ]);
+
+        // Остаток не должен измениться
+        $this->assertEquals(1.0, $this->medicine->fresh()->quantity);
+
+        // С флагом confirm_without_stock: приём фиксируется, остаток остаётся 1.0 (не уходит в минус)
+        $responseConfirm = $this->postJson('/api/intake-logs/quick', [
+            'medicine_id' => $this->medicine->id,
+            'profile_id' => $this->profile->id,
+            'quantity' => 2.0,
+            'confirm_without_stock' => true,
+        ]);
+
+        $responseConfirm->assertStatus(201)
+            ->assertJson([
+                'message' => 'Приём зафиксирован без списания остатка (подтверждено пользователем)',
+                'stock_warning' => true,
+                'remaining_quantity' => 1.0,
+            ]);
+
+        $this->assertEquals(1.0, $this->medicine->fresh()->quantity);
+
+        // При наличии достаточного количества (2.0) остаток атомарно списывается до 0
+        $this->medicine->update(['quantity' => 2.0]);
+        $responseDeduct = $this->postJson('/api/intake-logs/quick', [
+            'medicine_id' => $this->medicine->id,
+            'profile_id' => $this->profile->id,
+            'quantity' => 2.0,
+        ]);
+
+        $responseDeduct->assertStatus(201);
+        $responseDeduct->assertJson(['remaining_quantity' => 0.0]);
 
         $fresh = $this->medicine->fresh();
         $this->assertEquals(0.0, $fresh->quantity);
