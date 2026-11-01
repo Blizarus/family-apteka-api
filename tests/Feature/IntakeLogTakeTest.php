@@ -148,4 +148,40 @@ class IntakeLogTakeTest extends TestCase
 
         $this->assertCount(1, $response->json('data'));
     }
+
+    public function test_duplicate_take_is_idempotent_and_does_not_double_deduct_stock(): void
+    {
+        // Первый вызов: остаток 10 -> 9
+        $response1 = $this->actingAs($this->user)
+            ->postJson("/api/intake-logs/{$this->log->id}/take");
+        $response1->assertStatus(200);
+
+        $this->medicine->refresh();
+        $this->assertEquals(9.0, (float) $this->medicine->quantity);
+
+        // Повторный вызов (повторный клик / задержка сети)
+        $response2 = $this->actingAs($this->user)
+            ->postJson("/api/intake-logs/{$this->log->id}/take");
+        $response2->assertStatus(200)
+            ->assertJsonPath('message', 'Приём лекарства уже был зафиксирован ранее.');
+
+        // Остаток не должен списаться повторно (должен остаться 9)
+        $this->medicine->refresh();
+        $this->assertEquals(9.0, (float) $this->medicine->quantity);
+    }
+
+    public function test_take_when_quantity_is_already_zero_does_not_become_negative(): void
+    {
+        // Имитируем опустевшую упаковку (остаток 0)
+        $this->medicine->update(['quantity' => 0.0]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/intake-logs/{$this->log->id}/take");
+
+        $response->assertStatus(200);
+
+        $this->medicine->refresh();
+        $this->assertEquals(0.0, (float) $this->medicine->quantity);
+        $this->assertEquals(MedicineStatus::FINISHED, $this->medicine->status);
+    }
 }

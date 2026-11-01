@@ -204,7 +204,16 @@ class IntakeLogController extends Controller
             return response()->json(['message' => 'Доступ к данному приему запрещен (IDOR).'], 403);
         }
 
-        $medicine = null;
+        $medicine = $intakeLog->medicine ?? $intakeLog->intakeCourse->medicine;
+
+        // Идемпотентность: если прием уже был зафиксирован ранее, не списываем остаток повторно
+        if ($intakeLog->status === IntakeLogStatus::TAKEN) {
+            return response()->json([
+                'message' => 'Приём лекарства уже был зафиксирован ранее.',
+                'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                'remaining_quantity' => (float) ($medicine?->fresh()->quantity ?? 0),
+            ], 200);
+        }
 
         // Атомарная транзакция: обновление статуса лога и списание остатка медикамента
         DB::transaction(function () use ($intakeLog, &$medicine) {
@@ -218,14 +227,15 @@ class IntakeLogController extends Controller
             // Списание физического остатка препарата
             $medicine = $intakeLog->medicine ?? $intakeLog->intakeCourse->medicine;
             if ($medicine) {
-                $amountToDeduct = $intakeLog->quantity_taken ?? 1;
-                $medicine->decrement('quantity', $amountToDeduct);
+                $amountToDeduct = (float) ($intakeLog->quantity_taken ?? 1);
+                $newQuantity = max(0.0, (float) $medicine->quantity - $amountToDeduct);
+                $medicine->quantity = $newQuantity;
 
                 // Если препарат закончился — обновляем статус
                 if ($medicine->quantity <= 0) {
                     $medicine->status = MedicineStatus::FINISHED;
-                    $medicine->save();
                 }
+                $medicine->save();
             }
         });
 
