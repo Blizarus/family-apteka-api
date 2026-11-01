@@ -1,0 +1,6 @@
+.git
+vendor
+node_modules
+storage/logs/*.log
+.env.production
+.env.testing

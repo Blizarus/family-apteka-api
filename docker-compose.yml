@@ -1,0 +1,66 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vkr-backend-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./:/var/www/html
+    networks:
+      - vkr-network
+    depends_on:
+      - mysql
+      - redis
+
+  web:
+    image: nginx:alpine
+    container_name: vkr-backend-web
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./:/var/www/html
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - vkr-network
+    depends_on:
+      - app
+
+  mysql:
+    image: mysql:8.0
+    container_name: vkr-backend-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: vkr_family_apteka
+      MYSQL_USER: vkr_user
+      MYSQL_PASSWORD: vkr_secret
+      MYSQL_ROOT_PASSWORD: vkr_root_secret
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - vkr-network
+
+  redis:
+    image: redis:alpine
+    container_name: vkr-backend-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - vkr-network
+
+volumes:
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  vkr-network:
+    driver: bridge
