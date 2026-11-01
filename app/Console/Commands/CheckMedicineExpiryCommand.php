@@ -31,7 +31,7 @@ class CheckMedicineExpiryCommand extends Command
     public function handle(): int
     {
         $today = Carbon::today();
-        $criticalDate = $today->copy()->addDays(14);
+        $criticalDate = $today->copy()->addDays(30);
 
         $medicines = Medicine::with(['medicineBox.users', 'referenceMedicine'])->get();
         $scannedCount = $medicines->count();
@@ -81,7 +81,6 @@ class CheckMedicineExpiryCommand extends Command
 
         foreach ($medicines as $medicine) {
             $tradeName = $medicine->custom_trade_name ?: ($medicine->referenceMedicine?->trade_name ?? 'Без названия');
-            $expDate = Carbon::parse($medicine->expiration_date)->startOfDay();
 
             // Находим владельца аптечки для логирования уведомления
             $owner = $medicine->medicineBox?->users
@@ -89,13 +88,24 @@ class CheckMedicineExpiryCommand extends Command
                 ?? $medicine->medicineBox?->users?->first();
 
             $ownerId = $owner?->id;
+            $userTz = $owner?->timezone ?: config('app.timezone', 'UTC');
+            $today = Carbon::now($userTz)->startOfDay();
+            $criticalDate = $today->copy()->addDays(30);
+
+            $expDateStr = $medicine->expiration_date instanceof Carbon
+                ? $medicine->expiration_date->toDateString()
+                : (string) $medicine->expiration_date;
+            $expDate = Carbon::parse($expDateStr, $userTz)->startOfDay();
             $isAlreadyExpired = false;
 
             // 1. Модель FEFO-Opened: проверка срока годности после вскрытия
             $daysAfterOpening = $medicine->days_after_opening ?? $medicine->referenceMedicine?->days_after_opening;
 
             if ($medicine->opened_at && $daysAfterOpening !== null) {
-                $openedDate = Carbon::parse($medicine->opened_at)->startOfDay();
+                $openedDateStr = $medicine->opened_at instanceof Carbon
+                    ? $medicine->opened_at->toDateString()
+                    : (string) $medicine->opened_at;
+                $openedDate = Carbon::parse($openedDateStr, $userTz)->startOfDay();
                 $openedExpiry = $openedDate->copy()->addDays((int) $daysAfterOpening);
 
                 if ($today->greaterThanOrEqualTo($openedExpiry)) {
@@ -132,7 +142,12 @@ class CheckMedicineExpiryCommand extends Command
 
             // 2. Стандартный срок годности (если препарат еще не признан просроченным по вскрытию)
             if (! $isAlreadyExpired) {
-                if ($expDate->lessThan($today)) {
+                $effExpiry = $medicine->effective_expiration_date;
+                $effectiveDate = $effExpiry
+                    ? Carbon::parse($effExpiry instanceof Carbon ? $effExpiry->toDateString() : (string) $effExpiry, $userTz)->startOfDay()
+                    : $expDate;
+
+                if ($effectiveDate->lessThan($today)) {
                     $expiredCount++;
                     if ($medicine->status !== MedicineStatus::EXPIRED && $medicine->status !== MedicineStatus::FINISHED) {
                         $medicine->status = MedicineStatus::EXPIRED;
@@ -147,7 +162,7 @@ class CheckMedicineExpiryCommand extends Command
                                 'type' => NotificationLogType::EXPIRY_CRITICAL,
                                 'user_id' => $ownerId,
                                 'sent_at' => Carbon::now(),
-                                'message' => "Истёк срок годности препарата {$tradeName} ({$expDate->format('d.m.Y')})",
+                                'message' => "Истёк срок годности препарата {$tradeName} ({$effectiveDate->format('d.m.Y')})",
                             ]);
                         }
                     }
@@ -156,10 +171,10 @@ class CheckMedicineExpiryCommand extends Command
                         $medicine->id,
                         $tradeName,
                         $medicine->medicineBox?->name ?? '—',
-                        $medicine->expiration_date->format('Y-m-d'),
+                        $effectiveDate->format('Y-m-d'),
                         'EXPIRED',
                     ];
-                } elseif ($expDate->lessThanOrEqualTo($criticalDate)) {
+                } elseif ($effectiveDate->lessThanOrEqualTo($criticalDate)) {
                     $expiringCount++;
                     if ($medicine->status !== MedicineStatus::EXPIRING && $medicine->status !== MedicineStatus::FINISHED) {
                         $medicine->status = MedicineStatus::EXPIRING;
@@ -167,7 +182,7 @@ class CheckMedicineExpiryCommand extends Command
                     }
 
                     if ($ownerId) {
-                        $daysLeft = $today->diffInDays($expDate, false);
+                        $daysLeft = $today->diffInDays($effectiveDate, false);
                         $notifType = ($daysLeft <= 7)
                             ? NotificationLogType::EXPIRY_WARNING_7D
                             : NotificationLogType::EXPIRY_WARNING_30D;
@@ -179,7 +194,7 @@ class CheckMedicineExpiryCommand extends Command
                                 'type' => $notifType,
                                 'user_id' => $ownerId,
                                 'sent_at' => Carbon::now(),
-                                'message' => "Истекает срок годности препарата {$tradeName} через {$daysLeft} дн. ({$expDate->format('d.m.Y')})",
+                                'message' => "Истекает срок годности препарата {$tradeName} через {$daysLeft} дн. ({$effectiveDate->format('d.m.Y')})",
                             ]);
                         }
                     }
@@ -188,7 +203,7 @@ class CheckMedicineExpiryCommand extends Command
                         $medicine->id,
                         $tradeName,
                         $medicine->medicineBox?->name ?? '—',
-                        $medicine->expiration_date->format('Y-m-d'),
+                        $effectiveDate->format('Y-m-d'),
                         'EXPIRING',
                     ];
                 }
