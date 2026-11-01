@@ -341,6 +341,57 @@
               ]
             }
           }
+        },
+        {
+          "name": "Get Adherence Report (Комплаенс)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports/adherence?period=7_days",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "adherence"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "7_days"
+                }
+              ]
+            }
+          }
         }
       ]
     },
@@ -994,6 +1045,60 @@
               "path": [
                 "medicines",
                 "{{medicine_id}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Open Medicine Bottle (Модель FEFO-Opened)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"days_after_opening\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/medicines/{{medicine_id}}/open",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "medicines",
+                "{{medicine_id}}",
+                "open"
               ]
             }
           }

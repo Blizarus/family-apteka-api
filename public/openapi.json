@@ -67,6 +67,10 @@
     {
       "name": "Notifications",
       "description": "Системные уведомления о сроках годности и минимальных остатках"
+    },
+    {
+      "name": "Reports",
+      "description": "Аналитические отчёты: комплаенс, приверженность лечению (Adherence), непрерывные серии (streak)"
     }
   ],
   "components": {
@@ -431,6 +435,13 @@
             "type": "integer",
             "nullable": true,
             "example": 180
+          },
+          "effective_expiration_date": {
+            "type": "string",
+            "format": "date",
+            "nullable": true,
+            "example": "2026-11-28",
+            "description": "Вычисляемый эффективный срок годности (модель FEFO-Opened)"
           },
           "low_stock_threshold": {
             "type": "number",
@@ -2575,6 +2586,101 @@
         }
       }
     },
+    "/medicines/{id}/open": {
+      "post": {
+        "tags": [
+          "Medicines"
+        ],
+        "summary": "Фиксация факта вскрытия флакона / упаковки препарата",
+        "description": "Фиксирует дату вскрытия (opened_at = now()), устанавливает срок хранения после вскрытия (days_after_opening) и рассчитывает эффективный срок годности (effective_expiration_date). При истечении статусу присваивается expired.",
+        "security": [
+          {
+            "sanctumAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 5
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "days_after_opening": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3650,
+                    "example": 30,
+                    "description": "Срок годности после вскрытия в днях"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Флакон успешно вскрыт",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Флакон успешно вскрыт."
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Medicine"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "IDOR: Доступ запрещен",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Препарат не найден",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Ошибка валидации",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/reference-medicines": {
       "get": {
         "tags": [
@@ -3629,6 +3735,177 @@
           },
           "404": {
             "description": "Уведомление не найдено",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/adherence": {
+      "get": {
+        "tags": [
+          "Reports"
+        ],
+        "summary": "Аналитический отчёт комплаенса и приверженности лечению (Adherence Report)",
+        "description": "Формирует структурированную аналитику: комплаентность (adherence_rate), текущая непрерывная серия приёмов (streak_days), посуточная статистика и разбивка по препаратам.",
+        "security": [
+          {
+            "sanctumAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "7_days",
+                "30_days",
+                "all"
+              ],
+              "default": "7_days"
+            },
+            "description": "Период анализа"
+          },
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "ID профиля члена семьи (IDOR защита)"
+          },
+          {
+            "name": "family_member_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "Алиас для profile_id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Аналитический отчёт комплаенса",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "period": {
+                      "type": "object",
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "example": "7_days"
+                        },
+                        "start_date": {
+                          "type": "string",
+                          "format": "date",
+                          "example": "2026-10-26"
+                        },
+                        "end_date": {
+                          "type": "string",
+                          "format": "date",
+                          "example": "2026-11-01"
+                        }
+                      }
+                    },
+                    "scheduled_count": {
+                      "type": "integer",
+                      "example": 14
+                    },
+                    "taken_count": {
+                      "type": "integer",
+                      "example": 12
+                    },
+                    "missed_count": {
+                      "type": "integer",
+                      "example": 2
+                    },
+                    "adherence_rate": {
+                      "type": "number",
+                      "format": "float",
+                      "example": 85.7
+                    },
+                    "streak_days": {
+                      "type": "integer",
+                      "example": 5
+                    },
+                    "daily_stats": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": {
+                            "type": "string",
+                            "format": "date",
+                            "example": "2026-10-26"
+                          },
+                          "scheduled": {
+                            "type": "integer",
+                            "example": 2
+                          },
+                          "taken": {
+                            "type": "integer",
+                            "example": 2
+                          },
+                          "missed": {
+                            "type": "integer",
+                            "example": 0
+                          }
+                        }
+                      }
+                    },
+                    "medicines_summary": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "medicine_id": {
+                            "type": "integer",
+                            "example": 1
+                          },
+                          "name": {
+                            "type": "string",
+                            "example": "Ибупрофен 400 мг"
+                          },
+                          "scheduled_count": {
+                            "type": "integer",
+                            "example": 14
+                          },
+                          "taken_count": {
+                            "type": "integer",
+                            "example": 12
+                          },
+                          "missed_count": {
+                            "type": "integer",
+                            "example": 2
+                          },
+                          "adherence_rate": {
+                            "type": "number",
+                            "format": "float",
+                            "example": 85.7
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "IDOR: Доступ запрещен",
             "content": {
               "application/json": {
                 "schema": {

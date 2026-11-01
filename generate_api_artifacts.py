@@ -75,7 +75,8 @@ def build_openapi_spec():
             {"name": "IntakeCourses", "description": "Назначение курсов приёма и автогенерация расписания логов на 14 дней"},
             {"name": "IntakeLogs", "description": "Журнал приёмов лекарств: отметка о приёме (списание остатка), пропуск, перенос (snooze)"},
             {"name": "MedicationSafety", "description": "Клинический аудит безопасности медикаментозного назначения (CDS)"},
-            {"name": "Notifications", "description": "Системные уведомления о сроках годности и минимальных остатках"}
+            {"name": "Notifications", "description": "Системные уведомления о сроках годности и минимальных остатках"},
+            {"name": "Reports", "description": "Аналитические отчёты: комплаенс, приверженность лечению (Adherence), непрерывные серии (streak)"}
         ],
         "components": {
             "securitySchemes": {
@@ -209,6 +210,7 @@ def build_openapi_spec():
                         "expiration_date": {"type": "string", "format": "date", "example": "2027-12-31"},
                         "opened_at": {"type": "string", "format": "date", "nullable": True, "example": "2026-10-01"},
                         "days_after_opening": {"type": "integer", "nullable": True, "example": 180},
+                        "effective_expiration_date": {"type": "string", "format": "date", "nullable": True, "example": "2026-11-28", "description": "Вычисляемый эффективный срок годности (модель FEFO-Opened)"},
                         "low_stock_threshold": {"type": "number", "format": "float", "example": 2.0},
                         "storage_condition": {"type": "string", "enum": ["room", "fridge", "dark_place"], "example": "room"},
                         "status": {
@@ -963,6 +965,50 @@ def build_openapi_spec():
         }
     }
 
+    p["/medicines/{id}/open"] = {
+        "post": {
+            "tags": ["Medicines"],
+            "summary": "Фиксация факта вскрытия флакона / упаковки препарата",
+            "description": "Фиксирует дату вскрытия (opened_at = now()), устанавливает срок хранения после вскрытия (days_after_opening) и рассчитывает эффективный срок годности (effective_expiration_date). При истечении статусу присваивается expired.",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 5}
+            ],
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "days_after_opening": {"type": "integer", "minimum": 1, "maximum": 3650, "example": 30, "description": "Срок годности после вскрытия в днях"}
+                            }
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "Флакон успешно вскрыт",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Флакон успешно вскрыт."},
+                                    "data": {"$ref": "#/components/schemas/Medicine"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "404": {"description": "Препарат не найден", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Ошибка валидации", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+            }
+        }
+    }
+
     # =========================================================================
     # 7. REFERENCE MEDICINES
     # =========================================================================
@@ -1401,6 +1447,77 @@ def build_openapi_spec():
         }
     }
 
+    # =========================================================================
+    # 12. REPORTS (ANALYTICS & ADHERENCE)
+    # =========================================================================
+    p["/reports/adherence"] = {
+        "get": {
+            "tags": ["Reports"],
+            "summary": "Аналитический отчёт комплаенса и приверженности лечению (Adherence Report)",
+            "description": "Формирует структурированную аналитику: комплаентность (adherence_rate), текущая непрерывная серия приёмов (streak_days), посуточная статистика и разбивка по препаратам.",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "period", "in": "query", "required": False, "schema": {"type": "string", "enum": ["7_days", "30_days", "all"], "default": "7_days"}, "description": "Период анализа"},
+                {"name": "profile_id", "in": "query", "required": False, "schema": {"type": "integer"}, "description": "ID профиля члена семьи (IDOR защита)"},
+                {"name": "family_member_id", "in": "query", "required": False, "schema": {"type": "integer"}, "description": "Алиас для profile_id"}
+            ],
+            "responses": {
+                "200": {
+                    "description": "Аналитический отчёт комплаенса",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "period": {
+                                        "type": "object",
+                                        "properties": {
+                                            "type": {"type": "string", "example": "7_days"},
+                                            "start_date": {"type": "string", "format": "date", "example": "2026-10-26"},
+                                            "end_date": {"type": "string", "format": "date", "example": "2026-11-01"}
+                                        }
+                                    },
+                                    "scheduled_count": {"type": "integer", "example": 14},
+                                    "taken_count": {"type": "integer", "example": 12},
+                                    "missed_count": {"type": "integer", "example": 2},
+                                    "adherence_rate": {"type": "number", "format": "float", "example": 85.7},
+                                    "streak_days": {"type": "integer", "example": 5},
+                                    "daily_stats": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "date": {"type": "string", "format": "date", "example": "2026-10-26"},
+                                                "scheduled": {"type": "integer", "example": 2},
+                                                "taken": {"type": "integer", "example": 2},
+                                                "missed": {"type": "integer", "example": 0}
+                                            }
+                                        }
+                                    },
+                                    "medicines_summary": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "medicine_id": {"type": "integer", "example": 1},
+                                                "name": {"type": "string", "example": "Ибупрофен 400 мг"},
+                                                "scheduled_count": {"type": "integer", "example": 14},
+                                                "taken_count": {"type": "integer", "example": 12},
+                                                "missed_count": {"type": "integer", "example": 2},
+                                                "adherence_rate": {"type": "number", "format": "float", "example": 85.7}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+            }
+        }
+    }
+
     return spec
 
 
@@ -1637,6 +1754,21 @@ def build_postman_collection():
                         "raw": "{{baseUrl}}/dashboard",
                         "host": ["{{baseUrl}}"],
                         "path": ["dashboard"]
+                    }
+                }
+            },
+            {
+                "name": "Get Adherence Report (Комплаенс)",
+                "event": [status_test([200])],
+                "request": {
+                    "auth": bearer_auth,
+                    "method": "GET",
+                    "header": [{"key": "Accept", "value": "application/json"}],
+                    "url": {
+                        "raw": "{{baseUrl}}/reports/adherence?period=7_days",
+                        "host": ["{{baseUrl}}"],
+                        "path": ["reports", "adherence"],
+                        "query": [{"key": "period", "value": "7_days"}]
                     }
                 }
             }
@@ -1921,6 +2053,29 @@ def build_postman_collection():
                         "raw": "{{baseUrl}}/medicines/{{medicine_id}}",
                         "host": ["{{baseUrl}}"],
                         "path": ["medicines", "{{medicine_id}}"]
+                    }
+                }
+            },
+            {
+                "name": "Open Medicine Bottle (Модель FEFO-Opened)",
+                "event": [status_test([200])],
+                "request": {
+                    "auth": bearer_auth,
+                    "method": "POST",
+                    "header": [
+                        {"key": "Accept", "value": "application/json"},
+                        {"key": "Content-Type", "value": "application/json"}
+                    ],
+                    "body": {
+                        "mode": "raw",
+                        "raw": json.dumps({
+                            "days_after_opening": 30
+                        }, indent=2)
+                    },
+                    "url": {
+                        "raw": "{{baseUrl}}/medicines/{{medicine_id}}/open",
+                        "host": ["{{baseUrl}}"],
+                        "path": ["medicines", "{{medicine_id}}", "open"]
                     }
                 }
             }
@@ -2276,6 +2431,7 @@ def build_gost_markdown_table():
 | 6.3 | `GET` | `/medicines/{id}` | Детальная карточка препарата | `Bearer Sanctum`; Gate `view`; Расшифровка AES-256 на лету | `200 OK` / `403 Forbidden` |
 | 6.4 | `PUT` | `/medicines/{id}` | Обновление остатков, статуса и даты вскрытия | `Bearer Sanctum`; Gate `update`; Модель FEFO-Opened | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
 | 6.5 | `DELETE` | `/medicines/{id}` | Списание / утилизация упаковки лекарства | `Bearer Sanctum`; Gate `update` | `200 OK` / `403 Forbidden` |
+| 6.6 | `POST` | `/medicines/{id}/open` | Фиксация вскрытия упаковки / флакона | `Bearer Sanctum`; Gate `update`; Модель FEFO-Opened (расчёт `effective_expiration_date`) | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
 | **7. Модуль открытого справочника ГРЛС / МНН** | | | | | |
 | 7.1 | `GET` | `/reference-medicines` | Поиск по справочнику медикаментов (ГРЛС) | Публичный доступ; Rate Limiter (`throttle:60,1`, защита от скрапинга) | `200 OK` (массив эталонных записей) / `429 Too Many Requests` |
 | 7.2 | `GET` | `/reference-medicines/{id}` | Полная карточка препарата из реестра | Публичный доступ; Rate Limiter (`throttle:60,1`) | `200 OK` / `404 Not Found` |
@@ -2296,12 +2452,14 @@ def build_gost_markdown_table():
 | **11. Модуль системных уведомлений и оповещений о рисках** | | | | | |
 | 11.1 | `GET` | `/notifications` | Список системных уведомлений пользователя | `Bearer Sanctum`; Изоляция по `user_id` | `200 OK` (массив NotificationLog) |
 | 11.2 | `DELETE` | `/notifications/{id}` | Удаление прочитанного уведомления | `Bearer Sanctum`; Проверка IDOR (`user_id == auth()->id()`) | `200 OK` / `403 Forbidden` |
-| **12. Модуль администрирования, управления пользователями и IP-фильтрации (ЛР 2, Таблица 1, строка 5)** | | | | | |
-| 12.1 | `GET` | `/admin/users` | Реестр пользователей и статусов блокировки | `Bearer Sanctum`; Роль `is_admin`; Строгая IP-фильтрация (только внутренняя доверенная сеть) | `200 OK` (пагинация учетных записей) / `403 Forbidden` |
-| 12.2 | `POST` | `/admin/users/{id}/block` | Блокировка / разблокировка учетной записи пользователя | `Bearer Sanctum`; Роль `is_admin`; IP-фильтрация; Немедленный отзыв всех активных токенов | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
-| 12.3 | `POST` | `/admin/reference-medicines` | Добавление эталонного препарата в справочник ГРЛС | `Bearer Sanctum`; Роль `is_admin`; IP-фильтрация; Валидация штрихкода и АТХ | `201 Created` / `403 Forbidden` / `422 Unprocessable` |
-| 12.4 | `PUT` | `/admin/reference-medicines/{id}` | Редактирование записи реестра лекарств | `Bearer Sanctum`; Роль `is_admin`; IP-фильтрация | `200 OK` / `403 Forbidden` |
-| 12.5 | `DELETE` | `/admin/reference-medicines/{id}` | Удаление записи из справочника медикаментов | `Bearer Sanctum`; Роль `is_admin`; IP-фильтрация | `200 OK` / `403 Forbidden` |
+| **12. Модуль аналитических отчётов комплаенса и приверженности лечению** | | | | | |
+| 12.1 | `GET` | `/reports/adherence` | Отчёт о приверженности лечению (комплаенс) | `Bearer Sanctum`; Защита от IDOR; Расчёт `adherence_rate`, `streak_days`, `daily_stats` | `200 OK` / `403 Forbidden` |
+| **13. Модуль администрирования, управления пользователями и IP-фильтрации (ЛР 2, Таблица 1, строка 5)** | | | | | |
+| 13.1 | `GET` | `/admin/users` | Реестр пользователей и статусов блокировки | `Bearer Sanctum`; Роль `is_admin`; Строгая IP-фильтрация (только внутренняя доверенная сеть) | `200 OK` (пагинация учетных записей) / `403 Forbidden` |
+| 13.2 | `POST` | `/admin/users/{id}/block` | Блокировка / разблокировка учетной записи пользователя | `Bearer Sanctum`; Роль `is_admin`; IP-фильтрация; Немедленный отзыв всех активных токенов | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
+| 13.3 | `POST` | `/admin/reference-medicines` | Добавление эталонного препарата в справочник ГРЛС | `Bearer Sanctum`; Роль `is_admin`; IP-фильтрация; Валидация штрихкода и АТХ | `201 Created` / `403 Forbidden` / `422 Unprocessable` |
+| 13.4 | `PUT` | `/admin/reference-medicines/{id}` | Редактирование записи реестра лекарств | `Bearer Sanctum`; Роль `is_admin`; IP-фильтрация | `200 OK` / `403 Forbidden` |
+| 13.5 | `DELETE` | `/admin/reference-medicines/{id}` | Удаление записи из справочника медикаментов | `Bearer Sanctum`; Роль `is_admin`; IP-фильтрация | `200 OK` / `403 Forbidden` |
 
 ---
 

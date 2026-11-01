@@ -5,6 +5,7 @@ namespace App\Models;
 use App\MedicineQuantityUnit;
 use App\MedicineStatus;
 use App\StorageCondition;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -25,6 +26,10 @@ class Medicine extends Model
         'low_stock_threshold',
         'status',
         'notes',
+    ];
+
+    protected $appends = [
+        'effective_expiration_date',
     ];
 
     protected function casts(): array
@@ -63,5 +68,26 @@ class Medicine extends Model
         return $this->hasMany(IntakeLog::class);
     }
 
+    /**
+     * Вычисляемый эффективный срок годности (модель FEFO-Opened):
+     * Возвращает минимальную дату между заводским сроком годности (expiration_date)
+     * и сроком годности после вскрытия упаковки (opened_at + days_after_opening).
+     */
+    public function getEffectiveExpirationDateAttribute(): ?Carbon
+    {
+        $daysAfterOpening = $this->days_after_opening ?? $this->referenceMedicine?->days_after_opening;
 
+        $openedExpiry = null;
+        if ($this->opened_at && $daysAfterOpening !== null) {
+            $openedExpiry = Carbon::parse($this->opened_at)->startOfDay()->addDays((int) $daysAfterOpening);
+        }
+
+        $packageExpiry = $this->expiration_date ? Carbon::parse($this->expiration_date)->startOfDay() : null;
+
+        if ($openedExpiry && $packageExpiry) {
+            return $openedExpiry->lessThan($packageExpiry) ? $openedExpiry : $packageExpiry;
+        }
+
+        return $openedExpiry ?? $packageExpiry;
+    }
 }

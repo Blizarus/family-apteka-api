@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\MedicationSafetyController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReferenceMedicineController;
+use App\Http\Controllers\Api\ReportController;
 use App\Http\Middleware\RestrictToInternalNetwork;
 use Illuminate\Support\Facades\Route;
 
@@ -68,6 +69,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('medicine-boxes', MedicineBoxController::class);
 
     // 6. Физические лекарства в аптечках (StoreMedicineRequest, шифрование полей)
+    Route::post('/medicines/{medicine}/open', [MedicineController::class, 'open']);
     Route::apiResource('medicines', MedicineController::class);
 
     // 7. Курсы приёма (IntakeCoursePolicy, генерация расписания и 14-дневных логов)
@@ -85,6 +87,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/skip', [IntakeLogController::class, 'skip']);
         Route::post('/{id}/snooze', [IntakeLogController::class, 'snooze']);
     });
+
+    // 10. Аналитические отчёты (комплаенс и приверженность лечению)
+    Route::get('/reports/adherence', [ReportController::class, 'adherence']);
 });
 
 // 10. Панель администрирования (ЛР 2, Таблица 1, строка 5):

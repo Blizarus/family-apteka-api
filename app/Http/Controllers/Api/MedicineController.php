@@ -8,6 +8,7 @@ use App\MedicineStatus;
 use App\StorageCondition;
 use App\Models\Medicine;
 use App\Models\MedicineBox;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -163,6 +164,43 @@ class MedicineController extends Controller
 
         return response()->json([
             'message' => 'Препарат успешно удален.',
+        ], 200);
+    }
+
+    /**
+     * Вскрытие флакона / упаковки препарата (модель FEFO-Opened).
+     * Фиксирует дату вскрытия, опциональный срок хранения после вскрытия и актуализирует статус.
+     */
+    public function open(Request $request, Medicine $medicine): JsonResponse
+    {
+        Gate::authorize('update', $medicine->medicineBox);
+
+        $validated = $request->validate([
+            'days_after_opening' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:3650'],
+        ]);
+
+        if (array_key_exists('days_after_opening', $validated) && $validated['days_after_opening'] !== null) {
+            $medicine->days_after_opening = (int) $validated['days_after_opening'];
+        } elseif (! $medicine->days_after_opening) {
+            $refDays = $medicine->referenceMedicine?->days_after_opening;
+            $medicine->days_after_opening = $refDays ?: 30;
+        }
+
+        $medicine->opened_at = now();
+
+        // Проверяем эффективный срок годности
+        $effectiveExpiry = $medicine->effective_expiration_date;
+        if ($effectiveExpiry && Carbon::parse($effectiveExpiry)->startOfDay()->lessThanOrEqualTo(now()->startOfDay())) {
+            $medicine->status = MedicineStatus::EXPIRED;
+        } elseif ($medicine->status !== MedicineStatus::FINISHED) {
+            $medicine->status = MedicineStatus::ACTIVE;
+        }
+
+        $medicine->save();
+
+        return response()->json([
+            'message' => 'Флакон успешно вскрыт.',
+            'data' => $medicine->fresh(['referenceMedicine', 'medicineBox']),
         ], 200);
     }
 }
