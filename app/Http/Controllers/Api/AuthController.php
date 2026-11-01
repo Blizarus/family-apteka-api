@@ -253,4 +253,99 @@ class AuthController extends Controller
             'message' => 'Аккаунт и все связанные персональные данные успешно удалены.',
         ], 200);
     }
+
+    /**
+     * Экспорт всех персональных данных пользователя в машиночитаемом формате JSON (DSAR / ст. 14 152-ФЗ).
+     */
+    public function exportData(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        // 1. Профили членов семьи с курсами приёма
+        $profiles = $user->profiles()->with(['intakeCourses.intakeLogs', 'intakeCourses.medicine'])->get();
+
+        // 2. Аптечки и лекарственные препараты
+        $boxes = $user->medicineBoxes()->with('medicines.referenceMedicine')->get();
+
+        // 3. Системные уведомления
+        $notifications = $user->notificationLogs()->latest()->take(50)->get();
+
+        $export = [
+            'meta' => [
+                'document' => 'Выгрузка персональных данных субъекта (152-ФЗ РФ)',
+                'legal_basis' => 'Статья 14 152-ФЗ РФ «Право субъекта персональных данных на доступ к его персональным данным»',
+                'exported_at' => now()->toIso8601String(),
+                'system' => 'Информационная система «Семейная аптечка»',
+                'format_version' => '1.0',
+            ],
+            'user' => [
+                'id' => $user->id,
+                'email' => $user->email,
+                'timezone' => $user->timezone,
+                'sync_enabled' => (bool) $user->sync_enabled,
+                'consent_given_at' => $user->consent_given_at?->toIso8601String(),
+                'consent_version' => $user->consent_version,
+                'registered_at' => $user->created_at?->toIso8601String(),
+            ],
+            'profiles' => $profiles->map(function ($p) {
+                return [
+                    'id' => $p->id,
+                    'name' => $p->name,
+                    'birth_date' => $p->birth_date?->toDateString(),
+                    'avatar_url' => $p->avatar_url,
+                    'notes' => $p->notes, // AES-256 авто-расшифровывается моделью Eloquent
+                    'allergies' => $p->allergies ?? [],
+                    'chronic_conditions' => $p->chronic_conditions ?? [],
+                    'intake_courses' => $p->intakeCourses->map(function ($c) {
+                        return [
+                            'id' => $c->id,
+                            'title' => $c->title,
+                            'medicine_name' => $c->medicine?->custom_trade_name ?? $c->medicine?->referenceMedicine?->trade_name,
+                            'dosage_quantity' => $c->dosage_quantity,
+                            'dosage_instruction' => $c->dosage_instruction,
+                            'start_date' => $c->start_date?->toDateString(),
+                            'end_date' => $c->end_date?->toDateString(),
+                            'is_active' => (bool) $c->is_active,
+                            'total_intake_logs' => $c->intakeLogs->count(),
+                        ];
+                    }),
+                ];
+            }),
+            'medicine_boxes' => $boxes->map(function ($b) {
+                return [
+                    'id' => $b->id,
+                    'name' => $b->name,
+                    'box_type' => $b->box_type,
+                    'description' => $b->description,
+                    'role' => $b->pivot?->role,
+                    'medicines' => $b->medicines->map(function ($m) {
+                        return [
+                            'id' => $m->id,
+                            'trade_name' => $m->custom_trade_name ?? $m->referenceMedicine?->trade_name,
+                            'quantity' => (float) $m->quantity,
+                            'quantity_unit' => $m->quantity_unit,
+                            'expiration_date' => $m->expiration_date?->toDateString(),
+                            'opened_at' => $m->opened_at?->toDateString(),
+                            'days_after_opening' => $m->days_after_opening,
+                            'status' => $m->status,
+                            'storage_condition' => $m->storage_condition,
+                        ];
+                    }),
+                ];
+            }),
+            'notifications' => $notifications->map(function ($n) {
+                return [
+                    'id' => $n->id,
+                    'title' => $n->title,
+                    'message' => $n->message,
+                    'type' => $n->type,
+                    'created_at' => $n->created_at?->toIso8601String(),
+                ];
+            }),
+        ];
+
+        return response()->json($export, 200, [
+            'Content-Disposition' => 'attachment; filename="personal_data_export_' . $user->id . '.json"',
+        ]);
+    }
 }

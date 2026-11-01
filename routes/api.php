@@ -45,6 +45,7 @@ Route::prefix('auth')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::put('/password', [AuthController::class, 'updatePassword']);
         Route::delete('/account', [AuthController::class, 'destroyAccount']);
+        Route::get('/export', [AuthController::class, 'exportData']);
     });
 });
 

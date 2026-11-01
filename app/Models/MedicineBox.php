@@ -12,7 +12,11 @@ class MedicineBox extends Model
 {
     use SoftDeletes;
 
-    protected $guarded = [];
+    protected $fillable = [
+        'name',
+        'box_type',
+        'description',
+    ];
 
     protected function casts(): array
     {

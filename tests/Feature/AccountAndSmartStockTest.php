@@ -263,6 +263,117 @@ class AccountAndSmartStockTest extends TestCase
     }
 
     /**
+     * 2. 152-ФЗ ст. 14: Экспорт персональных данных GET /api/auth/export (DSAR).
+     */
+    public function test_user_can_export_personal_data_under_152_fz(): void
+    {
+        // 1. Без авторизации -> 401
+        $guestResponse = $this->getJson('/api/auth/export');
+        $guestResponse->assertStatus(401);
+
+        // 2. Создаем пользователя с профилем, заметкой (AES-256), аптечкой и курсом
+        $user = User::create([
+            'email' => 'dsar_export@family.test',
+            'password' => Hash::make('secret_123'),
+            'sync_enabled' => true,
+            'consent_given_at' => Carbon::now(),
+            'consent_version' => '1.0',
+        ]);
+
+        $profile = Profile::create([
+            'user_id' => $user->id,
+            'name' => 'Иван Экспорт',
+            'notes' => 'Конфиденциальные медицинские записи (AES-256)',
+            'allergies' => ['пенициллин', 'цитрусовые'],
+            'chronic_conditions' => ['гипертония'],
+        ]);
+
+        $box = MedicineBox::create([
+            'name' => 'Домашняя аптечка экспорта',
+            'box_type' => MedicineBoxType::HOME,
+        ]);
+
+        MedicineBoxUser::create([
+            'medicine_box_id' => $box->id,
+            'user_id' => $user->id,
+            'role' => MedicineBoxUserRole::OWNER,
+        ]);
+
+        $med = Medicine::create([
+            'medicine_box_id' => $box->id,
+            'custom_trade_name' => 'Нурофен Форте',
+            'quantity' => 12.0,
+            'quantity_unit' => MedicineQuantityUnit::PILLS,
+            'expiration_date' => Carbon::today()->addYears(1)->toDateString(),
+            'storage_condition' => StorageCondition::ROOM,
+            'status' => MedicineStatus::ACTIVE,
+        ]);
+
+        $course = $profile->intakeCourses()->create([
+            'medicine_id' => $med->id,
+            'title' => 'Курс Нурофена',
+            'start_date' => Carbon::today()->toDateString(),
+            'end_date' => Carbon::today()->addDays(7)->toDateString(),
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => 'После еды',
+            'is_active' => true,
+        ]);
+
+        // Создаем данные другого пользователя (для проверки изоляции данных)
+        $otherUser = User::create([
+            'email' => 'stranger@family.test',
+            'password' => Hash::make('secret_123'),
+        ]);
+        $otherProfile = Profile::create([
+            'user_id' => $otherUser->id,
+            'name' => 'Чужой Профиль',
+            'notes' => 'Чужая тайна',
+        ]);
+
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/auth/export');
+
+        $response->assertStatus(200)
+            ->assertHeader('Content-Disposition', 'attachment; filename="personal_data_export_' . $user->id . '.json"')
+            ->assertJsonStructure([
+                'meta' => ['document', 'legal_basis', 'exported_at', 'system', 'format_version'],
+                'user' => ['id', 'email', 'timezone', 'sync_enabled', 'consent_given_at', 'consent_version', 'registered_at'],
+                'profiles',
+                'medicine_boxes',
+                'notifications',
+            ]);
+
+        $data = $response->json();
+
+        // Проверяем данные пользователя
+        $this->assertEquals($user->id, $data['user']['id']);
+        $this->assertEquals('dsar_export@family.test', $data['user']['email']);
+
+        // Проверяем профиль и расшифровку заметки
+        $this->assertCount(1, $data['profiles']);
+        $this->assertEquals('Иван Экспорт', $data['profiles'][0]['name']);
+        $this->assertEquals('Конфиденциальные медицинские записи (AES-256)', $data['profiles'][0]['notes']);
+        $this->assertEquals(['пенициллин', 'цитрусовые'], $data['profiles'][0]['allergies']);
+
+        // Проверяем курс приёма
+        $this->assertCount(1, $data['profiles'][0]['intake_courses']);
+        $this->assertEquals('Курс Нурофена', $data['profiles'][0]['intake_courses'][0]['title']);
+
+        // Проверяем аптечку и лекарство
+        $this->assertCount(1, $data['medicine_boxes']);
+        $this->assertEquals('Домашняя аптечка экспорта', $data['medicine_boxes'][0]['name']);
+        $this->assertCount(1, $data['medicine_boxes'][0]['medicines']);
+        $this->assertEquals('Нурофен Форте', $data['medicine_boxes'][0]['medicines'][0]['trade_name']);
+
+        // Изоляция: данные другого пользователя отсутствуют в дампе
+        $jsonString = $response->getContent();
+        $this->assertStringNotContainsString('Чужой Профиль', $jsonString);
+        $this->assertStringNotContainsString('Чужая тайна', $jsonString);
+        $this->assertStringNotContainsString('stranger@family.test', $jsonString);
+    }
+
+    /**
      * 3. FEFO-Opened: консольный воркер помечает препарат просроченным, если opened_at + days_after_opening истек.
      */
     public function test_fefo_opened_marks_medicine_expired_when_period_exceeded(): void
