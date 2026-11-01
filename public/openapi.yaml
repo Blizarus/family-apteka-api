@@ -172,6 +172,16 @@ components:
           type: string
           nullable: true
           example: Основная домашняя аптечка в коридоре
+        medicines_count:
+          type: integer
+          example: 5
+        role:
+          type: string
+          enum:
+          - owner
+          - editor
+          - viewer
+          example: owner
         pivot:
           type: object
           properties:
@@ -1250,7 +1260,9 @@ paths:
       tags:
       - MedicineBoxes
       summary: Удаление аптечки (Soft-delete)
-      description: Доступно исключительно владельцу аптечки (`owner`).
+      description: 'Доступно исключительно владельцу аптечки (`owner`). Защита от
+        потери данных: запрещено удалять аптечку, в которой содержатся препараты (возврат
+        422 Unprocessable Entity).'
       security:
       - sanctumAuth: []
       parameters:
@@ -1268,7 +1280,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-          description: 'IDOR: Доступ запрещен'
+          description: 'IDOR: Доступ запрещен (только owner)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Нельзя удалить непустую аптечку
           content:
             application/json:
               schema:

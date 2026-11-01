@@ -18,6 +18,7 @@ class MedicineBoxController extends Controller
         $user = $request->user();
 
         $boxes = $user->medicineBoxes()
+            ->withCount('medicines')
             ->withPivot('role')
             ->get();
 
@@ -32,7 +33,7 @@ class MedicineBoxController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'name' => ['required', 'string', 'max:255'],
+            'name' => ['required', 'string', 'min:2', 'max:255'],
             'box_type' => ['required', 'in:home,car,child,travel,custom'],
             'description' => ['nullable', 'string', 'max:500'],
         ]);
@@ -42,6 +43,9 @@ class MedicineBoxController extends Controller
 
         // Привязываем пользователя как владельца
         $box->users()->attach($user->id, ['role' => 'owner']);
+
+        $box->medicines_count = 0;
+        $box->role = 'owner';
 
         return response()->json([
             'message' => 'Аптечка успешно создана.',
@@ -90,10 +94,17 @@ class MedicineBoxController extends Controller
     /**
      * Удаление аптечки.
      * Защита от IDOR: только owner.
+     * Защита от потери данных: запрещено удалять непустую аптечку.
      */
     public function destroy(MedicineBox $medicineBox): JsonResponse
     {
         Gate::authorize('delete', $medicineBox);
+
+        if ($medicineBox->medicines()->exists()) {
+            return response()->json([
+                'message' => 'Нельзя удалить аптечку, в которой содержатся лекарственные препараты. Сначала переместите или удалите их.',
+            ], 422);
+        }
 
         $medicineBox->delete();
 

@@ -131,6 +131,8 @@ def build_openapi_spec():
                             "example": "home"
                         },
                         "description": {"type": "string", "nullable": True, "example": "Основная домашняя аптечка в коридоре"},
+                        "medicines_count": {"type": "integer", "example": 5},
+                        "role": {"type": "string", "enum": ["owner", "editor", "viewer"], "example": "owner"},
                         "pivot": {
                             "type": "object",
                             "properties": {
@@ -745,14 +747,15 @@ def build_openapi_spec():
         "delete": {
             "tags": ["MedicineBoxes"],
             "summary": "Удаление аптечки (Soft-delete)",
-            "description": "Доступно исключительно владельцу аптечки (`owner`).",
+            "description": "Доступно исключительно владельцу аптечки (`owner`). Защита от потери данных: запрещено удалять аптечку, в которой содержатся препараты (возврат 422 Unprocessable Entity).",
             "security": [{"sanctumAuth": []}],
             "parameters": [
                 {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 1}
             ],
             "responses": {
                 "200": {"description": "Аптечка удалена", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
-                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+                "403": {"description": "IDOR: Доступ запрещен (только owner)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Нельзя удалить непустую аптечку", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
             }
         }
     }
@@ -2262,7 +2265,7 @@ def build_gost_markdown_table():
 | 4.2 | `POST` | `/medicine-boxes` | Создание аптечки (домашняя, авто, детская) | `Bearer Sanctum`; Назначение создателя ролью `owner` | `201 Created` |
 | 4.3 | `GET` | `/medicine-boxes/{id}` | Просмотр аптечки и её содержимого | `Bearer Sanctum`; Политика `MedicineBoxPolicy::view` | `200 OK` / `403 Forbidden` |
 | 4.4 | `PUT` | `/medicine-boxes/{id}` | Редактирование информации об аптечке | `Bearer Sanctum`; Политика `MedicineBoxPolicy::update` (`owner`, `editor`) | `200 OK` / `403 Forbidden` |
-| 4.5 | `DELETE` | `/medicine-boxes/{id}` | Удаление аптечки | `Bearer Sanctum`; Политика `MedicineBoxPolicy::delete` (строго `owner`) | `200 OK` / `403 Forbidden` |
+| 4.5 | `DELETE` | `/medicine-boxes/{id}` | Удаление аптечки | `Bearer Sanctum`; Политика `MedicineBoxPolicy::delete` (строго `owner`); Запрет удаления непустой аптечки | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
 | **5. Модуль семейного шеринга и управления участниками аптечки** | | | | | |
 | 5.1 | `GET` | `/medicine-boxes/{id}/members` | Список участников аптечки с ролями | `Bearer Sanctum`; Политика `MedicineBoxPolicy::view` | `200 OK` (массив пользователей с ролями) |
 | 5.2 | `POST` | `/medicine-boxes/{id}/members` | Добавление / смена роли участника (editor/viewer) | `Bearer Sanctum`; Gate `invite`; Проверка `sync_enabled` 152-ФЗ | `201 Created` / `200 OK` / `403 Forbidden` |

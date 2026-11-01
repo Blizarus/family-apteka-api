@@ -135,4 +135,109 @@ class MedicineBoxAndSecurityTest extends TestCase
         $this->assertNotEquals('Конфиденциальные медицинские примечания', $raw->notes);
         $this->assertNotEquals('Секретный препарат', $raw->custom_trade_name);
     }
+
+    /**
+     * Создание новой аптечки с описанием и ролью owner.
+     */
+    public function test_user_can_create_new_medicine_box(): void
+    {
+        $response = $this->actingAs($this->owner)
+            ->postJson('/api/medicine-boxes', [
+                'name' => 'Дорожная аптечка',
+                'box_type' => 'travel',
+                'description' => 'Аптечка для поездок и командировок',
+            ]);
+
+        $response->assertStatus(201)
+            ->assertJson([
+                'message' => 'Аптечка успешно создана.',
+                'data' => [
+                    'name' => 'Дорожная аптечка',
+                    'box_type' => 'travel',
+                    'description' => 'Аптечка для поездок и командировок',
+                    'medicines_count' => 0,
+                    'role' => 'owner',
+                ],
+            ]);
+
+        $this->assertDatabaseHas('medicine_boxes', [
+            'name' => 'Дорожная аптечка',
+            'box_type' => 'travel',
+        ]);
+
+        $createdBox = MedicineBox::where('name', 'Дорожная аптечка')->first();
+        $this->assertDatabaseHas('medicine_box_users', [
+            'medicine_box_id' => $createdBox->id,
+            'user_id' => $this->owner->id,
+            'role' => 'owner',
+        ]);
+    }
+
+    /**
+     * Защита от случайного удаления: блокировка удаления непустой аптечки (HTTP 422).
+     */
+    public function test_cannot_delete_box_with_active_medicines(): void
+    {
+        Medicine::create([
+            'medicine_box_id' => $this->box->id,
+            'custom_trade_name' => 'Аспирин',
+            'quantity' => 10,
+            'quantity_unit' => MedicineQuantityUnit::PILLS,
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => MedicineStatus::ACTIVE,
+        ]);
+
+        $response = $this->actingAs($this->owner)
+            ->deleteJson('/api/medicine-boxes/' . $this->box->id);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'message' => 'Нельзя удалить аптечку, в которой содержатся лекарственные препараты. Сначала переместите или удалите их.',
+            ]);
+
+        $this->assertDatabaseHas('medicine_boxes', [
+            'id' => $this->box->id,
+            'deleted_at' => null,
+        ]);
+    }
+
+    /**
+     * Безопасное удаление пустой аптечки владельцем (HTTP 200).
+     */
+    public function test_can_delete_empty_box(): void
+    {
+        $response = $this->actingAs($this->owner)
+            ->deleteJson('/api/medicine-boxes/' . $this->box->id);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'message' => 'Аптечка успешно удалена.',
+            ]);
+
+        $this->assertSoftDeleted('medicine_boxes', [
+            'id' => $this->box->id,
+        ]);
+    }
+
+    /**
+     * Получение списка аптечек с автоматическим подсчетом лекарств (withCount).
+     */
+    public function test_owner_can_list_boxes_with_medicines_count(): void
+    {
+        Medicine::create([
+            'medicine_box_id' => $this->box->id,
+            'custom_trade_name' => 'Ибупрофен',
+            'quantity' => 20,
+            'quantity_unit' => MedicineQuantityUnit::PILLS,
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => MedicineStatus::ACTIVE,
+        ]);
+
+        $response = $this->actingAs($this->owner)
+            ->getJson('/api/medicine-boxes');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.0.id', $this->box->id)
+            ->assertJsonPath('data.0.medicines_count', 1);
+    }
 }
