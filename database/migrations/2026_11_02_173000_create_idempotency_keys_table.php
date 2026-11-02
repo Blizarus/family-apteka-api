@@ -16,8 +16,8 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->string('key', 191);
             $table->string('request_hash', 64);
-            $table->integer('response_code');
-            $table->longText('response_body');
+            $table->integer('response_code')->nullable();
+            $table->longText('response_body')->nullable();
             $table->timestamps();
 
             $table->unique(['user_id', 'key']);

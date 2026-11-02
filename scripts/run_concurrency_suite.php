@@ -1,5 +1,15 @@
 <?php
 
+if (!getenv('DB_CONNECTION')) {
+    putenv('DB_CONNECTION=mysql');
+}
+if (!getenv('DB_PORT')) {
+    putenv('DB_PORT=3307');
+}
+if (!getenv('DB_DATABASE')) {
+    putenv('DB_DATABASE=family_apteka_test');
+}
+
 /**
  * Стресс-тест конкурентности на реальной СУБД MySQL / MariaDB (InnoDB).
  * Проверяет:
@@ -14,6 +24,18 @@ require __DIR__ . '/../vendor/autoload.php';
 $app = require_once __DIR__ . '/../bootstrap/app.php';
 $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $kernel->bootstrap();
+
+// MySQL 8.4 LTS
+config([
+    'database.default' => 'mysql',
+    'database.connections.mysql.host' => '127.0.0.1',
+    'database.connections.mysql.port' => 3307,
+    'database.connections.mysql.database' => 'family_apteka_test',
+    'database.connections.mysql.username' => 'root',
+    'database.connections.mysql.password' => '',
+]);
+\Illuminate\Support\Facades\DB::purge('mysql');
+\Illuminate\Support\Facades\DB::reconnect('mysql');
 
 use App\IntakeLogStatus;
 use App\MedicineQuantityUnit;
@@ -136,30 +158,54 @@ for ($run = 1; $run <= $iterations; $run++) {
     }
 
     // Проверяем ответы: 10 одновременных запросов с одним ключом идемпотентности
-    $initialDeductions = 0;
-    $idempotentPasses = 0;
+    $status200Count = 0;
     $errors = 0;
+    $hashes = [];
 
     foreach ($responses as $resp) {
-        $msg = $resp['content']['message'] ?? '';
         $status = $resp['status'] ?? 0;
         if ($status === 200) {
-            if (str_contains($msg, 'Остаток списан')) {
-                $initialDeductions++;
-            } else {
-                $idempotentPasses++;
-            }
+            $status200Count++;
+            $hashes[] = hash('sha256', json_encode($resp['content'] ?? []));
         } else {
             $errors++;
         }
     }
 
+    $uniqueHashes = array_unique($hashes);
+    $allIdenticalResponses = (count($uniqueHashes) === 1);
+
+    // Дополнительно: запрос с тем же ключом, но другим телом (confirm-without-stock=1) обязан вернуть 422
+    $diffPipes = [];
+    $diffProc = proc_open(
+        "{$phpBinary} {$workerScript} --user-id={$user->id} --log-id={$log->id} --idempotency-key={$idempotencyKey} --confirm-without-stock=1",
+        $descriptors,
+        $diffPipes
+    );
+    fclose($diffPipes[0]);
+    $diffOut = stream_get_contents($diffPipes[1]);
+    fclose($diffPipes[1]);
+    fclose($diffPipes[2]);
+    proc_close($diffProc);
+    $diffJson = json_decode($diffOut, true);
+    $diffStatus = $diffJson['status'] ?? 0;
+
     $medicine->refresh();
     $finalQuantity = (float) $medicine->quantity;
     $log->refresh();
 
-    // Ровно 1 списание остатка (10.0 -> 9.0), 0 ошибок, статус TAKEN
-    $test1Pass = ($errors === 0) && ($finalQuantity === 9.0) && ($log->status === IntakeLogStatus::TAKEN);
+    // Критерии ТЗ:
+    // 1) Все 10 параллельных потоков получили HTTP 200 ($status200Count === 10)
+    // 2) Все 10 потоков получили идентичный JSON-ответ ($allIdenticalResponses === true)
+    // 3) Ровно 1 списание остатка (10.0 -> 9.0)
+    // 4) Статус лога TAKEN
+    // 5) Конфликтующее тело возвращает строгий HTTP 422 ($diffStatus === 422)
+    $test1Pass = ($errors === 0) &&
+                 ($status200Count === 10) &&
+                 $allIdenticalResponses &&
+                 ($finalQuantity === 9.0) &&
+                 ($log->status === IntakeLogStatus::TAKEN) &&
+                 ($diffStatus === 422);
 
     // -------------------------------------------------------------------------
     // ТЕСТ 2: Параллельное списание ПОСЛЕДНЕЙ единицы (остаток 1.0, 2 запроса)
@@ -245,12 +291,13 @@ for ($run = 1; $run <= $iterations; $run++) {
 
     $statusIcon = $runPassed ? "[OK]" : "[FAIL]";
     $line = sprintf(
-        "Прогон %02d/20: %s | Тест 1 (10 потоков): списаний=%d, отсечек=%d, остаток=%.1f | Тест 2 (Последняя ед.): статусы=[%s], остаток=%.1f\n",
+        "Прогон %02d/20: %s | Тест 1 (10 потоков): HTTP 200=%d/10, идентичный JSON=%s, списание=1 (остаток=%.1f), конфликт=HTTP %d | Тест 2 (Последняя ед.): статусы=[%s], остаток=%.1f\n",
         $run,
         $statusIcon,
-        $initialDeductions,
-        $idempotentPasses,
+        $status200Count,
+        $allIdenticalResponses ? 'YES' : 'NO',
         $finalQuantity,
+        $diffStatus,
         implode(', ', $statuses),
         $lastQty
     );

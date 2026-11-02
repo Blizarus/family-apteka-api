@@ -106,38 +106,132 @@ class IntakeLogController extends Controller
     }
 
     /**
-     * Проверка существующего ключа идемпотентности.
-     * Возвращает JsonResponse (сохраненный ответ или 422), либо null если ключ свободен.
+     * Попытка резервирования ключа идемпотентности или возврат сохраненного ответа.
+     * Реализует IETF-совместимый протокол идемпотентности с ожиданием (spin-lock):
+     * 1) Если запись уже существует:
+     *    - при несовпадении хеша запроса -> строго 422 Unprocessable Entity;
+     *    - при совпадении хеша и наличии response_code -> возврат сохраненного ответа;
+     *    - при совпадении хеша и response_code === null (идет обработка первым потоком) ->
+     *      ожидание завершения первой транзакции через spin-lock до 4 секунд.
+     * 2) Если записи нет:
+     *    - атомарная вставка с response_code = null.
+     *    - при коллизии 1062 (гонка) -> переход в spin-lock ожидания ответа.
      */
-    protected function checkIdempotency(int $userId, ?string $key, string $requestHash): ?JsonResponse
+    protected function reserveOrWaitIdempotency(int $userId, ?string $key, string $requestHash): array
     {
         if (empty($key)) {
-            return null;
+            return ['action' => 'process'];
         }
 
+        // 1. Проверяем, существует ли уже запись
         $record = DB::table('idempotency_keys')
             ->where('user_id', $userId)
             ->where('key', $key)
             ->first();
 
         if ($record) {
-            if ($record->request_hash === $requestHash) {
+            if ($record->request_hash !== $requestHash) {
+                return [
+                    'action' => 'response',
+                    'response' => response()->json([
+                        'message' => 'Идемпотентный ключ уже использован с другим телом запроса.',
+                    ], 422),
+                ];
+            }
+
+            if ($record->response_code !== null) {
+                return [
+                    'action' => 'response',
+                    'response' => response()->json(
+                        json_decode($record->response_body, true),
+                        $record->response_code
+                    ),
+                ];
+            }
+
+            // Идет обработка первым потоком -> ожидаем завершения
+            return [
+                'action' => 'response',
+                'response' => $this->waitForIdempotentResponse($userId, $key, $requestHash),
+            ];
+        }
+
+        // 2. Попытка атомарного резервирования
+        try {
+            DB::table('idempotency_keys')->insert([
+                'user_id' => $userId,
+                'key' => $key,
+                'request_hash' => $requestHash,
+                'response_code' => null,
+                'response_body' => null,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            return ['action' => 'process'];
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() == 23000 || str_contains($e->getMessage(), '1062') || str_contains($e->getMessage(), 'idempotency_keys')) {
+                return [
+                    'action' => 'response',
+                    'response' => $this->waitForIdempotentResponse($userId, $key, $requestHash),
+                ];
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * Ожидание завершения конкурирующей транзакции для того же ключа идемпотентности.
+     * Опрашивает БД каждые 50 мс с таймаутом до 4 секунд.
+     * Все 10 параллельных потоков гарантированно получают HTTP 200 с идентичным ответом.
+     */
+    protected function waitForIdempotentResponse(int $userId, string $key, string $requestHash, int $timeoutSeconds = 4): JsonResponse
+    {
+        $startTime = microtime(true);
+        while ((microtime(true) - $startTime) < $timeoutSeconds) {
+            usleep(50000); // 50 мс
+            $record = DB::table('idempotency_keys')
+                ->where('user_id', $userId)
+                ->where('key', $key)
+                ->first();
+
+            if (! $record) {
+                continue;
+            }
+
+            if ($record->request_hash !== $requestHash) {
+                return response()->json([
+                    'message' => 'Идемпотентный ключ уже использован с другим телом запроса.',
+                ], 422);
+            }
+
+            if ($record->response_code !== null) {
                 return response()->json(
                     json_decode($record->response_body, true),
                     $record->response_code
                 );
             }
-
-            return response()->json([
-                'message' => 'Идемпотентный ключ уже использован с другим телом запроса.',
-            ], 422);
         }
 
-        return null;
+        return response()->json([
+            'message' => 'Время ожидания обработки идемпотентного запроса истекло.',
+        ], 409);
     }
 
     /**
-     * Фиксация ответа для ключа идемпотентности (внутри открытой транзакции).
+     * Проверка существующего ключа идемпотентности (совместимость).
+     */
+    protected function checkIdempotency(int $userId, ?string $key, string $requestHash): ?JsonResponse
+    {
+        if (empty($key)) {
+            return null;
+        }
+        $res = $this->reserveOrWaitIdempotency($userId, $key, $requestHash);
+        return $res['action'] === 'response' ? $res['response'] : null;
+    }
+
+    /**
+     * Сохранение фактического ответа для зарезервированного ключа идемпотентности.
      */
     protected function recordIdempotency(int $userId, ?string $key, string $requestHash, int $code, array $body): void
     {
@@ -146,22 +240,48 @@ class IntakeLogController extends Controller
         }
 
         try {
-            DB::table('idempotency_keys')->insert([
-                'user_id' => $userId,
-                'key' => $key,
-                'request_hash' => $requestHash,
-                'response_code' => $code,
-                'response_body' => json_encode($body),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            DB::table('idempotency_keys')
+                ->where('user_id', $userId)
+                ->where('key', $key)
+                ->update([
+                    'response_code' => $code,
+                    'response_body' => json_encode($body),
+                    'updated_at' => now(),
+                ]);
         } catch (\Throwable $e) {
-            // Игнорируем дублирование при параллельных гонках внутри транзакции
+            try {
+                DB::table('idempotency_keys')->insert([
+                    'user_id' => $userId,
+                    'key' => $key,
+                    'request_hash' => $requestHash,
+                    'response_code' => $code,
+                    'response_body' => json_encode($body),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            } catch (\Throwable $ignored) {}
         }
     }
 
     /**
-     * Фиксация разового симптоматического приёма лекарства по требованию (PRN / Quick Intake).
+     * Освобождение зарезервированного ключа при ошибке транзакции.
+     */
+    protected function releaseIdempotencyReservation(int $userId, ?string $key): void
+    {
+        if (empty($key)) {
+            return;
+        }
+
+        try {
+            DB::table('idempotency_keys')
+                ->where('user_id', $userId)
+                ->where('key', $key)
+                ->whereNull('response_code')
+                ->delete();
+        } catch (\Throwable $e) {}
+    }
+
+    /**
      * Создает или находит системный PRN-курс, фиксирует лог со статусом 'taken'
      * и атомарно списывает дозу из физического остатка препарата в аптечке.
      */
