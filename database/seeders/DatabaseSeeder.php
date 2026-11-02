@@ -20,6 +20,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class DatabaseSeeder extends Seeder
 {
@@ -28,10 +29,11 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // 1. Основной пользователь (хеширование пароля через Argon2id)
+        // 1. Основной пользователь (хеширование пароля через Argon2id, пароль из .env или случайный)
+        $annaPassword = env('SEED_ANNA_PASSWORD', Str::random(16));
         $user = User::create([
             'email' => 'anna@family.test',
-            'password' => Hash::make('password'),
+            'password' => Hash::make($annaPassword),
             'timezone' => 'Europe/Moscow',
             'sync_enabled' => true,
             'is_admin' => false,
@@ -39,9 +41,10 @@ class DatabaseSeeder extends Seeder
         ]);
 
         // 1.1. Администратор безопасности ИС (ролевой доступ RBAC согласно ЛР 2)
+        $adminPassword = env('SEED_ADMIN_PASSWORD', Str::random(16));
         User::create([
             'email' => 'admin@family.test',
-            'password' => Hash::make('admin123'),
+            'password' => Hash::make($adminPassword),
             'timezone' => 'Europe/Moscow',
             'sync_enabled' => true,
             'is_admin' => true,

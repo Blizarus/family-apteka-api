@@ -297,6 +297,76 @@ class MedicineOpenAndReportTest extends TestCase
     }
 
     /**
+     * 6.1. Тест строгого динамического вычисления процента приверженности из реальных записей intake_logs:
+     * Значение вычисляется по формуле (taken / scheduled) * 100 и динамически меняется
+     * при модификации записей в БД, подтверждая отсутствие статической заглушки.
+     */
+    public function test_adherence_rate_is_dynamically_calculated_from_actual_intake_logs_not_hardcoded(): void
+    {
+        $course = IntakeCourse::create([
+            'profile_id' => $this->profile->id,
+            'medicine_id' => $this->medicine->id,
+            'title' => 'Динамический курс комплаенса',
+            'dosage_instruction' => 'По 1 шт.',
+            'start_date' => Carbon::today()->subDays(5),
+            'end_date' => null,
+            'dosage_quantity' => 1.0,
+            'is_active' => true,
+        ]);
+
+        // Инициализируем 10 записей приёма: 7 выполнено (TAKEN), 3 пропущено (MISSED)
+        for ($i = 1; $i <= 7; $i++) {
+            IntakeLog::create([
+                'intake_course_id' => $course->id,
+                'medicine_id' => $this->medicine->id,
+                'scheduled_time' => Carbon::today()->subDays(2)->setTime($i, 0),
+                'status' => IntakeLogStatus::TAKEN,
+            ]);
+        }
+
+        $missedLogs = [];
+        for ($j = 1; $j <= 3; $j++) {
+            $missedLogs[] = IntakeLog::create([
+                'intake_course_id' => $course->id,
+                'medicine_id' => $this->medicine->id,
+                'scheduled_time' => Carbon::today()->subDays(1)->setTime($j + 10, 0),
+                'status' => IntakeLogStatus::MISSED,
+            ]);
+        }
+
+        // Этап 1: 7 / 10 = 70.0%
+        $res1 = $this->actingAs($this->user)->getJson('/api/reports/adherence?period=7_days');
+        $res1->assertStatus(200)
+            ->assertJsonPath('scheduled_count', 10)
+            ->assertJsonPath('taken_count', 7)
+            ->assertJsonPath('missed_count', 3);
+        $this->assertEquals(70.0, (float) $res1->json('adherence_rate'), '7 из 10 должно давать ровно 70.0%');
+
+        // Этап 2: Меняем 1 пропущенный приём на принятый (TAKEN): 8 / 10 = 80.0%
+        $missedLogs[0]->update(['status' => IntakeLogStatus::TAKEN]);
+        $res2 = $this->actingAs($this->user)->getJson('/api/reports/adherence?period=7_days');
+        $res2->assertStatus(200)
+            ->assertJsonPath('scheduled_count', 10)
+            ->assertJsonPath('taken_count', 8)
+            ->assertJsonPath('missed_count', 2);
+        $this->assertEquals(80.0, (float) $res2->json('adherence_rate'), 'После отметки приёма процент обязан пересчитаться на 80.0%');
+
+        // Этап 3: Добавляем новый запланированный приём со статусом SKIPPED: 8 / 11 = 72.7%
+        IntakeLog::create([
+            'intake_course_id' => $course->id,
+            'medicine_id' => $this->medicine->id,
+            'scheduled_time' => Carbon::today()->setTime(12, 0),
+            'status' => IntakeLogStatus::SKIPPED,
+        ]);
+        $res3 = $this->actingAs($this->user)->getJson('/api/reports/adherence?period=7_days');
+        $res3->assertStatus(200)
+            ->assertJsonPath('scheduled_count', 11)
+            ->assertJsonPath('taken_count', 8)
+            ->assertJsonPath('missed_count', 3);
+        $this->assertEquals(72.7, (float) $res3->json('adherence_rate'), '8 из 11 должно давать динамически рассчитанные 72.7%');
+    }
+
+    /**
      * 7. Защита от IDOR при запросе отчёта по чужому профилю.
      */
     public function test_idor_protection_on_adherence_report(): void
