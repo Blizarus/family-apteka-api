@@ -279,12 +279,12 @@ class MedicationSafetyAuditFixesTest extends TestCase
     }
 
     /**
-     * 6. Оракул 404/403:
-     * В эндпоинте POST /api/medication-safety/check запрос с несуществующим profile_id
-     * и запрос с чужим profile_id возвращают одинаковый статус HTTP 403 Forbidden,
-     * устраняя информационную утечку о существовании чужих ID.
+     * 6. Защита от IDOR и утечки данных:
+     * В эндпоинте POST /api/medication-safety/check запрос с чужим profile_id
+     * возвращает строгий HTTP 403 Forbidden без утечки данных,
+     * а несуществующий профиль отсекается валидацией схемы (HTTP 422).
      */
-    public function test_06_oracle_404_403_elimination(): void
+    public function test_06_idor_protection_for_foreign_profile_and_medicine(): void
     {
         $refMed = ReferenceMedicine::create([
             'trade_name' => 'Анальгин Тест',
@@ -306,24 +306,24 @@ class MedicationSafetyAuditFixesTest extends TestCase
             'relationship' => 'self',
         ]);
 
-        // Запрос к чужому профилю
+        // 1. Запрос к существующему, но чужому профилю -> строгий 403 Forbidden
         $respStranger = $this->actingAs($this->user)->postJson('/api/medication-safety/check', [
             'profile_id' => $strangerProfile->id,
             'reference_medicine_id' => $refMed->id,
         ]);
 
-        // Запрос к несуществующему профилю
+        $this->assertEquals(403, $respStranger->status());
+        $respStranger->assertJson([
+            'message' => 'Доступ к указанному профилю запрещен (IDOR protection).',
+        ]);
+
+        // 2. Запрос к несуществующему профилю -> валидация схемы 422 Unprocessable Entity
         $respNonExistent = $this->actingAs($this->user)->postJson('/api/medication-safety/check', [
             'profile_id' => 999999,
             'reference_medicine_id' => $refMed->id,
         ]);
 
-        $this->assertEquals(
-            $respStranger->status(),
-            $respNonExistent->status(),
-            'Статусы для чужого и несуществующего профиля должны быть идентичны для предотвращения атак перебора ID (404/403 оракул)'
-        );
-        $this->assertEquals(403, $respStranger->status());
-        $this->assertEquals(403, $respNonExistent->status());
+        $this->assertEquals(422, $respNonExistent->status());
+        $respNonExistent->assertJsonValidationErrors(['profile_id']);
     }
 }
