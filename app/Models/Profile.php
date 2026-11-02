@@ -26,8 +26,8 @@ class Profile extends Model
         return [
             'birth_date' => 'date',
             'notes' => 'encrypted', // Шифрование чувствительных медицинских заметок алгоритмом AES-256 (Data at Rest)
-            'allergies' => 'array',
-            'chronic_conditions' => 'array',
+            'allergies' => 'encrypted:array', // Специальные категории ПДн (ст. 10 152-ФЗ) - AES-256
+            'chronic_conditions' => 'encrypted:array', // Диагнозы и коморбидности - AES-256
         ];
     }
     public function user(): BelongsTo

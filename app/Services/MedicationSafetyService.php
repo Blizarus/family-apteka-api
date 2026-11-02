@@ -22,14 +22,16 @@ class MedicationSafetyService
 {
     /**
      * Комплексный аудит безопасности назначения лекарственного средства для профиля.
+     * Реализует fail-closed архитектуру с тремя исходами (safe, conflict, unverifiable).
      *
      * @param Profile $profile
      * @param ReferenceMedicine|Medicine $medicine
-     * @return array{is_safe: bool, has_critical: bool, warnings: array<int, string>}
+     * @return array{status: string, is_safe: bool, has_critical: bool, warnings: array<int, string>, unverified_checks: array<int, string>, disclaimer: string}
      */
     public function checkSafety(Profile $profile, ReferenceMedicine|Medicine $medicine): array
     {
         $warnings = [];
+        $unverifiedChecks = [];
         $hasCritical = false;
 
         // Извлечение метаданных препарата
@@ -39,12 +41,17 @@ class MedicationSafetyService
         $allergenTags = $this->resolveAllergenTags($medicine);
         $composition = $this->resolveComposition($medicine);
 
+        // Проверка привязки к справочнику лекарств (для пользовательских препаратов из аптечки)
+        if ($medicine instanceof Medicine && empty($medicine->reference_medicine_id)) {
+            $unverifiedChecks[] = "Препарат «{$tradeName}» добавлен вручную и не привязан к справочнику лекарственных средств (отсутствуют верифицированные МНН, АТХ и состав).";
+        }
+
         // Профиль пациента: аллергии и коморбидный статус
         $allergies = array_map('mb_strtolower', $profile->allergies ?? []);
         $chronicConditions = array_map('mb_strtolower', $profile->chronic_conditions ?? []);
 
         // 1. Детекция дублирования действующего вещества (МНН) по активным курсам приёма
-        $overlapWarning = $this->checkSubstanceOverlap($profile, $medicine, $inn, $atcCode, $tradeName);
+        $overlapWarning = $this->checkSubstanceOverlap($profile, $medicine, $inn, $atcCode, $tradeName, $unverifiedChecks);
         if ($overlapWarning !== null) {
             $warnings[] = $overlapWarning;
         }
@@ -65,6 +72,11 @@ class MedicationSafetyService
             $warnings = array_merge($warnings, $excipientAllergies['warnings']);
         }
 
+        // Fail-closed проверка для эксципиентов: если у пациента есть аллергии, но у препарата пустой состав и теги
+        if (! empty($allergies) && empty(trim($composition)) && empty($allergenTags)) {
+            $unverifiedChecks[] = "Невозможно проверить аллергию на вспомогательные вещества (эксципиенты, красители, консерванты): у препарата «{$tradeName}» не указан подробный фармацевтический состав и аллергенные теги.";
+        }
+
         // 4. Проверка противопоказаний по хроническим заболеваниям (Гастрит/язва vs НПВП, Гипертензия vs деконгестанты)
         $contraindications = $this->checkChronicContraindications($chronicConditions, $inn, $atcCode, $allergenTags, $composition, $tradeName);
         if (! empty($contraindications)) {
@@ -72,10 +84,22 @@ class MedicationSafetyService
             $warnings = array_merge($warnings, $contraindications);
         }
 
+        // Fail-closed проверка для коморбидного профиля: если есть хронические заболевания, но нет фармакологических данных
+        if (! empty($chronicConditions) && empty($inn) && empty($atcCode) && empty(trim($composition)) && empty($allergenTags)) {
+            $unverifiedChecks[] = "Невозможно проверить противопоказания по хроническим заболеваниям: у препарата «{$tradeName}» отсутствуют фармакологические данные (МНН, АТХ, состав).";
+        }
+
+        // Определение триады исходов: safe / conflict / unverifiable
+        $status = ! empty($warnings) ? 'conflict' : (! empty($unverifiedChecks) ? 'unverifiable' : 'safe');
+        $isSafe = $status === 'safe';
+
         return [
-            'is_safe' => count($warnings) === 0,
+            'status' => $status,
+            'is_safe' => $isSafe,
             'has_critical' => $hasCritical,
             'warnings' => array_values(array_unique($warnings)),
+            'unverified_checks' => array_values(array_unique($unverifiedChecks)),
+            'disclaimer' => 'Автоматическая проверка взаимодействия лекарств носит информационный характер и не заменяет консультацию врача или провизора. При наличии сомнений проконсультируйтесь со специалистом.',
         ];
     }
 
@@ -87,9 +111,11 @@ class MedicationSafetyService
         ReferenceMedicine|Medicine $targetMedicine,
         string $targetInn,
         string $targetAtc,
-        string $targetTradeName
+        string $targetTradeName,
+        array &$unverifiedChecks = []
     ): ?string {
         if (empty($targetInn) && empty($targetAtc)) {
+            $unverifiedChecks[] = "Невозможно выполнить проверку дублирования веществ: у препарата «{$targetTradeName}» не указаны МНН (международное непатентованное наименование) и код АТХ.";
             return null;
         }
 
@@ -109,6 +135,7 @@ class MedicationSafetyService
         foreach ($activeCourses as $course) {
             $activeMed = $course->medicine;
             if (! $activeMed) {
+                $unverifiedChecks[] = "Не удалось проверить пересечение с активным курсом «{$course->title}»: препарат курса не найден или был удален.";
                 continue;
             }
 
@@ -120,6 +147,11 @@ class MedicationSafetyService
             $activeTradeName = $activeMed->custom_trade_name ?: ($activeMed->referenceMedicine?->trade_name ?: 'Лекарство');
             $activeInn = mb_strtolower(trim($activeMed->referenceMedicine?->inn ?? ''));
             $activeAtc = trim($activeMed->referenceMedicine?->atc_code ?? '');
+
+            if (empty($activeInn) && empty($activeAtc)) {
+                $unverifiedChecks[] = "Не удалось проверить дублирование с активным курсом «{$course->title}» («{$activeTradeName}»): отсутствуют данные МНН и АТХ.";
+                continue;
+            }
 
             // 1) Точное совпадение или пересечение МНН
             $hasInnMatch = ! empty($targetInnClean) && ! empty($activeInn) && (

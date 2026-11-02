@@ -155,10 +155,17 @@ class MedicineController extends Controller
 
     /**
      * Удаление препарата из аптечки.
+     * Проверка прав через MedicinePolicy (разрешено владельцу и редактору).
      */
     public function destroy(Medicine $medicine): JsonResponse
     {
-        Gate::authorize('update', $medicine->medicineBox);
+        Gate::authorize('delete', $medicine);
+
+        if ($medicine->intakeCourses()->exists()) {
+            return response()->json([
+                'message' => 'Невозможно удалить препарат, так как с ним связаны курсы приёма лекарств.',
+            ], 409);
+        }
 
         $medicine->delete();
 

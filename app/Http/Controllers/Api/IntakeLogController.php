@@ -140,7 +140,15 @@ class IntakeLogController extends Controller
         $symptom = $validated['symptom'] ?? 'По требованию (симптом)';
         $confirmWithoutStock = $request->boolean('confirm_without_stock');
 
-        return DB::transaction(function () use ($profile, $validated, $dose, $takenAt, $symptom, $confirmWithoutStock) {
+        $idempotencyKey = $request->header('X-Idempotency-Key') ?? $request->input('idempotency_key');
+        if ($idempotencyKey) {
+            $cacheKey = 'idempotency:quick_take:' . $user->id . ':' . $idempotencyKey;
+            if ($cached = \Illuminate\Support\Facades\Cache::get($cacheKey)) {
+                return response()->json($cached, 200);
+            }
+        }
+
+        return DB::transaction(function () use ($profile, $validated, $dose, $takenAt, $symptom, $confirmWithoutStock, $idempotencyKey, $user) {
             $medicine = Medicine::lockForUpdate()->with(['referenceMedicine'])->findOrFail($validated['medicine_id']);
             $currentStock = (float) $medicine->quantity;
 
@@ -230,11 +238,17 @@ class IntakeLogController extends Controller
                 $medicine->save();
             }
 
-            return response()->json([
+            $responseData = [
                 'message' => 'Разовый приём успешно зафиксирован, остаток списан.',
                 'data' => $log->load(['medicine', 'intakeCourse.profile']),
                 'remaining_quantity' => (float) $medicine->quantity,
-            ], 201);
+            ];
+
+            if ($idempotencyKey) {
+                \Illuminate\Support\Facades\Cache::put('idempotency:quick_take:' . $user->id . ':' . $idempotencyKey, $responseData, now()->addMinutes(10));
+            }
+
+            return response()->json($responseData, 201);
         });
     }
 
@@ -345,34 +359,55 @@ class IntakeLogController extends Controller
 
     /**
      * Пропуск приема лекарства с указанием причины.
+     * Защищено DB::transaction, lockForUpdate и запретом отмены завершенных приёмов.
      */
     public function skip(Request $request, int $id): JsonResponse
     {
         $user = $request->user();
         $userProfileIds = $user->profiles()->pluck('id');
 
-        $intakeLog = IntakeLog::findOrFail($id);
-
-        if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
-            return response()->json(['message' => 'Доступ запрещен (IDOR).'], 403);
-        }
-
         $validated = $request->validate([
             'reason' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $intakeLog->status = IntakeLogStatus::SKIPPED;
-        $intakeLog->skipped_reason = $validated['reason'] ?? 'Пропущено пользователем';
-        $intakeLog->save();
+        return DB::transaction(function () use ($id, $userProfileIds, $validated) {
+            $intakeLog = IntakeLog::lockForUpdate()
+                ->with('intakeCourse')
+                ->findOrFail($id);
 
-        return response()->json([
-            'message' => 'Приём лекарства отмечен как пропущенный.',
-            'data' => $intakeLog,
-        ], 200);
+            if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
+                return response()->json(['message' => 'Доступ запрещен (IDOR).'], 403);
+            }
+
+            // Запрет перехода из состояния TAKEN: нельзя пометить пропущенным уже принятый приём
+            if ($intakeLog->status === IntakeLogStatus::TAKEN) {
+                return response()->json([
+                    'message' => 'Невозможно пропустить уже принятый препарат. Сначала выполните отмену приёма (undo).',
+                ], 409);
+            }
+
+            // Идемпотентность: если уже пропущен, возвращаем 200
+            if ($intakeLog->status === IntakeLogStatus::SKIPPED) {
+                return response()->json([
+                    'message' => 'Приём лекарства уже отмечен как пропущенный.',
+                    'data' => $intakeLog,
+                ], 200);
+            }
+
+            $intakeLog->status = IntakeLogStatus::SKIPPED;
+            $intakeLog->skipped_reason = $validated['reason'] ?? 'Пропущено пользователем';
+            $intakeLog->save();
+
+            return response()->json([
+                'message' => 'Приём лекарства отмечен как пропущенный.',
+                'data' => $intakeLog,
+            ], 200);
+        });
     }
 
     /**
      * Откладывание приёма лекарства на N минут (+15 минут по умолчанию).
+     * Защищено транзакцией и запретом откладывания завершенных приёмов.
      */
     public function snooze(Request $request, int $id): JsonResponse
     {
@@ -384,20 +419,102 @@ class IntakeLogController extends Controller
         $user = $request->user();
         $userProfileIds = $user->profiles()->pluck('id');
 
-        $intakeLog = IntakeLog::with(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine'])->findOrFail($id);
+        return DB::transaction(function () use ($id, $userProfileIds, $minutes) {
+            $intakeLog = IntakeLog::lockForUpdate()
+                ->with(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine'])
+                ->findOrFail($id);
 
-        if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
-            return response()->json(['message' => 'Доступ к данному приему запрещен (IDOR).'], 403);
-        }
+            if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
+                return response()->json(['message' => 'Доступ к данному приему запрещен (IDOR).'], 403);
+            }
 
-        $baseTime = $intakeLog->scheduled_time->isPast() ? Carbon::now() : $intakeLog->scheduled_time;
-        $intakeLog->scheduled_time = $baseTime->copy()->addMinutes($minutes);
-        $intakeLog->save();
+            if ($intakeLog->status === IntakeLogStatus::TAKEN) {
+                return response()->json(['message' => 'Невозможно отложить уже принятый препарат.'], 409);
+            }
 
-        return response()->json([
-            'message' => "Приём лекарства успешно отложен на {$minutes} мин.",
-            'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
-        ], 200);
+            if ($intakeLog->status === IntakeLogStatus::SKIPPED) {
+                return response()->json(['message' => 'Невозможно отложить пропущенный приём.'], 409);
+            }
+
+            $baseTime = $intakeLog->scheduled_time->isPast() ? Carbon::now() : $intakeLog->scheduled_time;
+            $intakeLog->scheduled_time = $baseTime->copy()->addMinutes($minutes);
+            $intakeLog->save();
+
+            return response()->json([
+                'message' => "Приём лекарства успешно отложен на {$minutes} мин.",
+                'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+            ], 200);
+        });
+    }
+
+    /**
+     * Отмена фиксации приёма лекарства (Undo).
+     * Возвращает списанный остаток физическому препарату, сбрасывает статус в SCHEDULED
+     * и очищает taken_time / skipped_reason с аудитом операции.
+     */
+    public function undo(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+        $userProfileIds = $user->profiles()->pluck('id');
+
+        return DB::transaction(function () use ($user, $id, $userProfileIds) {
+            $intakeLog = IntakeLog::lockForUpdate()
+                ->with(['intakeCourse', 'medicine'])
+                ->findOrFail($id);
+
+            if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
+                return response()->json(['message' => 'Доступ запрещен (IDOR).'], 403);
+            }
+
+            if ($intakeLog->status === IntakeLogStatus::SCHEDULED) {
+                return response()->json([
+                    'message' => 'Приём уже находится в статусе ожидания (scheduled).',
+                ], 409);
+            }
+
+            $medicineId = $intakeLog->medicine_id ?? $intakeLog->intakeCourse?->medicine_id;
+            $medicine = $medicineId ? Medicine::lockForUpdate()->find($medicineId) : null;
+            $remainingQuantity = 0.0;
+
+            if ($intakeLog->status === IntakeLogStatus::TAKEN) {
+                $amountToRefund = (float) ($intakeLog->quantity_taken ?: ($intakeLog->intakeCourse?->dosage_quantity ?? 1.0));
+
+                if ($medicine) {
+                    DB::table('medicines')
+                        ->where('id', $medicine->id)
+                        ->increment('quantity', $amountToRefund);
+
+                    $medicine->refresh();
+                    if ($medicine->status === MedicineStatus::FINISHED && $medicine->quantity > 0) {
+                        $medicine->status = MedicineStatus::ACTIVE;
+                        $medicine->save();
+                    }
+                    $remainingQuantity = (float) $medicine->quantity;
+                }
+
+                $intakeLog->status = IntakeLogStatus::SCHEDULED;
+                $intakeLog->taken_time = null;
+                $intakeLog->save();
+
+                \Illuminate\Support\Facades\Log::info("IntakeLog #{$id} status TAKEN undone by user #{$user->id}. Restored {$amountToRefund} units.");
+            } elseif ($intakeLog->status === IntakeLogStatus::SKIPPED) {
+                $intakeLog->status = IntakeLogStatus::SCHEDULED;
+                $intakeLog->skipped_reason = null;
+                $intakeLog->save();
+
+                if ($medicine) {
+                    $remainingQuantity = (float) $medicine->quantity;
+                }
+
+                \Illuminate\Support\Facades\Log::info("IntakeLog #{$id} status SKIPPED undone by user #{$user->id}.");
+            }
+
+            return response()->json([
+                'message' => 'Статус приёма успешно отменён, остаток препарата восстановлен.',
+                'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                'remaining_quantity' => $remainingQuantity,
+            ], 200);
+        });
     }
 
     /**

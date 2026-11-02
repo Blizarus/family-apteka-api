@@ -233,10 +233,22 @@ class AuthController extends Controller
             // 1. Отзыв всех Sanctum токенов
             $user->tokens()->delete();
 
-            // 2. Soft-delete профилей членов семьи
+            // 2. Очистка FCM токена
+            $user->fcm_token = null;
+            $user->save();
+
+            // 3. Удаление всех логов уведомлений пользователя
+            $user->notificationLogs()->delete();
+
+            // 4. Очистка персональных медицинских логов приёма (152-ФЗ ст. 21 / право на забвение)
+            $profileIds = $user->profiles()->pluck('id');
+            $courseIds = \App\Models\IntakeCourse::whereIn('profile_id', $profileIds)->pluck('id');
+            \App\Models\IntakeLog::whereIn('intake_course_id', $courseIds)->delete();
+
+            // 5. Soft-delete профилей членов семьи
             $user->profiles()->delete();
 
-            // 3. Soft-delete аптечек, где пользователь является владельцем
+            // 6. Soft-delete аптечек, где пользователь является владельцем
             $ownerBoxes = $user->medicineBoxes()
                 ->wherePivot('role', MedicineBoxUserRole::OWNER)
                 ->get();
@@ -245,7 +257,7 @@ class AuthController extends Controller
                 $box->delete();
             }
 
-            // 4. Soft-delete самой учетной записи
+            // 7. Soft-delete самой учетной записи
             $user->delete();
         });
 
@@ -307,6 +319,16 @@ class AuthController extends Controller
                             'end_date' => $c->end_date?->toDateString(),
                             'is_active' => (bool) $c->is_active,
                             'total_intake_logs' => $c->intakeLogs->count(),
+                            'intake_logs' => $c->intakeLogs->map(function ($log) {
+                                return [
+                                    'id' => $log->id,
+                                    'scheduled_time' => $log->scheduled_time?->toIso8601String(),
+                                    'taken_time' => $log->taken_time?->toIso8601String(),
+                                    'status' => $log->status instanceof \App\IntakeLogStatus ? $log->status->value : (string) $log->status,
+                                    'quantity_taken' => (float) ($log->quantity_taken ?? 0),
+                                    'skipped_reason' => $log->skipped_reason,
+                                ];
+                            }),
                         ];
                     }),
                 ];

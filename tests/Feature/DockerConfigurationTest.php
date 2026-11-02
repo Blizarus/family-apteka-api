@@ -56,29 +56,35 @@ class DockerConfigurationTest extends TestCase
         $this->assertStringContainsString('mysql:', $compose);
         $this->assertStringContainsString('redis:', $compose);
 
-        // Проверка портов
+        // Проверка портов с обязательной привязкой к 127.0.0.1 (защита от несанкционированного доступа извне)
         $this->assertStringContainsString('8000:80', $compose);
-        $this->assertStringContainsString('3306:3306', $compose);
-        $this->assertStringContainsString('6379:6379', $compose);
+        $this->assertStringContainsString('127.0.0.1:3306:3306', $compose);
+        $this->assertStringContainsString('127.0.0.1:6379:6379', $compose);
 
         // Проверка томов и сетей
         $this->assertStringContainsString('mysql_data', $compose);
         $this->assertStringContainsString('redis_data', $compose);
         $this->assertStringContainsString('vkr-network', $compose);
 
-        // Проверка переменных окружения MySQL
-        $this->assertStringContainsString('MYSQL_DATABASE', $compose);
-        $this->assertStringContainsString('vkr_family_apteka', $compose);
-        $this->assertStringContainsString('MYSQL_USER', $compose);
-        $this->assertStringContainsString('vkr_user', $compose);
-        $this->assertStringContainsString('MYSQL_PASSWORD', $compose);
-        $this->assertStringContainsString('vkr_secret', $compose);
-        $this->assertStringContainsString('MYSQL_ROOT_PASSWORD', $compose);
-        $this->assertStringContainsString('vkr_root_secret', $compose);
+        // Проверка отсутствия захардкоженных секретов и использования переменных окружения
+        $this->assertStringNotContainsString('vkr_secret', $compose, 'docker-compose.yml не должен содержать жестко зашитые пароли!');
+        $this->assertStringNotContainsString('vkr_root_secret', $compose, 'docker-compose.yml не должен содержать жестко зашитые пароли root!');
+        $this->assertStringContainsString('MYSQL_PASSWORD: ${DB_PASSWORD', $compose);
+        $this->assertStringContainsString('MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD', $compose);
 
         // Проверка зависимостей
         $this->assertStringContainsString('mysql', $compose);
         $this->assertStringContainsString('redis', $compose);
+    }
+
+    /**
+     * Проверка явного срока жизни токенов Sanctum.
+     */
+    public function test_sanctum_token_expiration_is_explicitly_configured(): void
+    {
+        $expiration = config('sanctum.expiration');
+        $this->assertNotNull($expiration, 'Срок жизни токенов Sanctum должен быть задан явно, а не null');
+        $this->assertGreaterThan(0, $expiration, 'Срок жизни токена должен быть положительным числом минут');
     }
 
     /**

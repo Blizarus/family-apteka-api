@@ -48,9 +48,9 @@ class AdminController extends Controller
         // Если пользователь заблокирован — немедленно отзываем все активные сессии и токены
         if ($block) {
             $user->tokens()->delete();
-            Log::info("Администратор {$request->user()->id} заблокировал пользователя ID {$user->id} ({$user->email}). Все активные токены аннулированы.");
+            Log::info("Администратор {$request->user()->id} заблокировал пользователя ID {$user->id}. Все активные токены аннулированы.");
         } else {
-            Log::info("Администратор {$request->user()->id} разблокировал пользователя ID {$user->id} ({$user->email}).");
+            Log::info("Администратор {$request->user()->id} разблокировал пользователя ID {$user->id}.");
         }
 
         return response()->json([
