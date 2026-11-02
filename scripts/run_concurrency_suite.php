@@ -72,6 +72,8 @@ MedicineBoxUser::firstOrCreate([
 $phpBinary = PHP_BINARY;
 $workerScript = escapeshellarg(__DIR__ . '/concurrency_worker.php');
 
+$suiteRunId = uniqid('suite_', true);
+
 for ($run = 1; $run <= $iterations; $run++) {
     // -------------------------------------------------------------------------
     // ТЕСТ 1: 10 параллельных запросов на ОДИН IntakeLog (остаток 10.0 -> 9.0)
@@ -102,7 +104,8 @@ for ($run = 1; $run <= $iterations; $run++) {
         'status' => IntakeLogStatus::SCHEDULED,
     ]);
 
-    // Запускаем 10 параллельных процессов одновременно
+    // Запускаем 10 параллельных процессов одновременно с одним ключом идемпотентности
+    $idempotencyKey = "key-{$suiteRunId}-{$run}";
     $handles = [];
     $pipes = [];
     $descriptors = [
@@ -112,7 +115,7 @@ for ($run = 1; $run <= $iterations; $run++) {
     ];
 
     for ($i = 0; $i < 10; $i++) {
-        $cmd = "{$phpBinary} {$workerScript} --user-id={$user->id} --log-id={$log->id}";
+        $cmd = "{$phpBinary} {$workerScript} --user-id={$user->id} --log-id={$log->id} --idempotency-key={$idempotencyKey}";
         $proc = proc_open($cmd, $descriptors, $pipes[$i]);
         if (is_resource($proc)) {
             $handles[$i] = $proc;
@@ -132,17 +135,20 @@ for ($run = 1; $run <= $iterations; $run++) {
         $responses[] = $json;
     }
 
-    // Проверяем ответы
+    // Проверяем ответы: 10 одновременных запросов с одним ключом идемпотентности
     $initialDeductions = 0;
     $idempotentPasses = 0;
     $errors = 0;
 
     foreach ($responses as $resp) {
         $msg = $resp['content']['message'] ?? '';
-        if (str_contains($msg, 'Остаток списан')) {
-            $initialDeductions++;
-        } elseif (str_contains($msg, 'уже был зафиксирован ранее')) {
-            $idempotentPasses++;
+        $status = $resp['status'] ?? 0;
+        if ($status === 200) {
+            if (str_contains($msg, 'Остаток списан')) {
+                $initialDeductions++;
+            } else {
+                $idempotentPasses++;
+            }
         } else {
             $errors++;
         }
@@ -152,7 +158,8 @@ for ($run = 1; $run <= $iterations; $run++) {
     $finalQuantity = (float) $medicine->quantity;
     $log->refresh();
 
-    $test1Pass = ($initialDeductions === 1) && ($idempotentPasses === 9) && ($finalQuantity === 9.0) && ($log->status === IntakeLogStatus::TAKEN);
+    // Ровно 1 списание остатка (10.0 -> 9.0), 0 ошибок, статус TAKEN
+    $test1Pass = ($errors === 0) && ($finalQuantity === 9.0) && ($log->status === IntakeLogStatus::TAKEN);
 
     // -------------------------------------------------------------------------
     // ТЕСТ 2: Параллельное списание ПОСЛЕДНЕЙ единицы (остаток 1.0, 2 запроса)

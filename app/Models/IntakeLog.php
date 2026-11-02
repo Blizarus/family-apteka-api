@@ -16,6 +16,7 @@ class IntakeLog extends Model
         'taken_time',
         'client_created_at',
         'quantity_taken',
+        'deducted_quantity',
         'status',
         'skipped_reason',
         'skip_reason',
@@ -28,6 +29,7 @@ class IntakeLog extends Model
             'taken_time' => 'datetime',
             'client_created_at' => 'datetime',
             'quantity_taken' => 'decimal:3',
+            'deducted_quantity' => 'decimal:3',
             'status' => IntakeLogStatus::class,
         ];
     }

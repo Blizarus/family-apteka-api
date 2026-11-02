@@ -96,6 +96,71 @@ class IntakeLogController extends Controller
     }
 
     /**
+     * Вычисление детерминированного хеша тела запроса (без служебных ключей).
+     */
+    protected function computeRequestHash(Request $request): string
+    {
+        $payload = $request->except(['idempotency_key', '_token']);
+        ksort($payload);
+        return hash('sha256', json_encode($payload));
+    }
+
+    /**
+     * Проверка существующего ключа идемпотентности.
+     * Возвращает JsonResponse (сохраненный ответ или 422), либо null если ключ свободен.
+     */
+    protected function checkIdempotency(int $userId, ?string $key, string $requestHash): ?JsonResponse
+    {
+        if (empty($key)) {
+            return null;
+        }
+
+        $record = DB::table('idempotency_keys')
+            ->where('user_id', $userId)
+            ->where('key', $key)
+            ->first();
+
+        if ($record) {
+            if ($record->request_hash === $requestHash) {
+                return response()->json(
+                    json_decode($record->response_body, true),
+                    $record->response_code
+                );
+            }
+
+            return response()->json([
+                'message' => 'Идемпотентный ключ уже использован с другим телом запроса.',
+            ], 422);
+        }
+
+        return null;
+    }
+
+    /**
+     * Фиксация ответа для ключа идемпотентности (внутри открытой транзакции).
+     */
+    protected function recordIdempotency(int $userId, ?string $key, string $requestHash, int $code, array $body): void
+    {
+        if (empty($key)) {
+            return;
+        }
+
+        try {
+            DB::table('idempotency_keys')->insert([
+                'user_id' => $userId,
+                'key' => $key,
+                'request_hash' => $requestHash,
+                'response_code' => $code,
+                'response_body' => json_encode($body),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            // Игнорируем дублирование при параллельных гонках внутри транзакции
+        }
+    }
+
+    /**
      * Фиксация разового симптоматического приёма лекарства по требованию (PRN / Quick Intake).
      * Создает или находит системный PRN-курс, фиксирует лог со статусом 'taken'
      * и атомарно списывает дозу из физического остатка препарата в аптечке.
@@ -106,9 +171,11 @@ class IntakeLogController extends Controller
             'medicine_id' => 'required|integer|exists:medicines,id',
             'profile_id'  => 'required|integer|exists:profiles,id',
             'quantity'    => 'nullable|numeric|min:0.1|max:10',
+            'dose'        => 'nullable|numeric|min:0.1|max:10',
             'symptom'     => 'nullable|string|max:255',
             'taken_at'    => 'nullable|date',
             'confirm_without_stock' => 'nullable|boolean',
+            'idempotency_key' => 'nullable|string|max:191',
         ]);
 
         $user = $request->user();
@@ -135,35 +202,79 @@ class IntakeLogController extends Controller
             return response()->json(['message' => 'Доступ к аптечке запрещен.'], 403);
         }
 
-        $dose = (float) ($validated['quantity'] ?? 1.0);
+        $dose = (float) ($validated['dose'] ?? ($validated['quantity'] ?? 1.0));
         $takenAt = ! empty($validated['taken_at']) ? Carbon::parse($validated['taken_at']) : Carbon::now();
         $symptom = $validated['symptom'] ?? 'По требованию (симптом)';
         $confirmWithoutStock = $request->boolean('confirm_without_stock');
 
         $idempotencyKey = $request->header('X-Idempotency-Key') ?? $request->input('idempotency_key');
+        $requestHash = $this->computeRequestHash($request);
+
         if ($idempotencyKey) {
-            $cacheKey = 'idempotency:quick_take:' . $user->id . ':' . $idempotencyKey;
-            if ($cached = \Illuminate\Support\Facades\Cache::get($cacheKey)) {
-                return response()->json($cached, 200);
+            $existing = $this->checkIdempotency($user->id, $idempotencyKey, $requestHash);
+            if ($existing !== null) {
+                return $existing;
             }
         }
 
-        return DB::transaction(function () use ($profile, $validated, $dose, $takenAt, $symptom, $confirmWithoutStock, $idempotencyKey, $user) {
-            $medicine = Medicine::lockForUpdate()->with(['referenceMedicine'])->findOrFail($validated['medicine_id']);
-            $currentStock = (float) $medicine->quantity;
+        try {
+            return DB::transaction(function () use ($profile, $validated, $dose, $takenAt, $symptom, $confirmWithoutStock, $idempotencyKey, $requestHash, $user) {
+                $medicine = Medicine::lockForUpdate()->with(['referenceMedicine'])->findOrFail($validated['medicine_id']);
+                $currentStock = (float) $medicine->quantity;
 
-            // Проверка наличия физического остатка
-            if ($currentStock < $dose) {
-                if (! $confirmWithoutStock) {
-                    return response()->json([
-                        'message' => 'Недостаточно препарата в аптечке для списания остатка. Подтвердите приём без списания.',
+                // Проверка наличия физического остатка
+                if ($currentStock < $dose) {
+                    if (! $confirmWithoutStock) {
+                        return response()->json([
+                            'message' => 'Недостаточно препарата в аптечке для списания остатка. Подтвердите приём без списания.',
+                            'stock_warning' => true,
+                            'requires_confirmation' => true,
+                            'remaining_quantity' => $currentStock,
+                        ], 409);
+                    }
+
+                    // Подтверждено пользователем: фиксируем приём без списания остатка
+                    $course = IntakeCourse::firstOrCreate(
+                        [
+                            'profile_id' => $profile->id,
+                            'medicine_id' => $medicine->id,
+                            'dosage_instruction' => 'По требованию (PRN)',
+                        ],
+                        [
+                            'title' => 'По требованию: ' . ($medicine->custom_trade_name ?: ($medicine->referenceMedicine?->trade_name ?? 'Медикамент')),
+                            'start_date' => Carbon::today(),
+                            'end_date' => null,
+                            'dosage_quantity' => $dose,
+                            'notes' => 'Симптоматический приём по необходимости',
+                            'is_active' => true,
+                        ]
+                    );
+
+                    $log = IntakeLog::create([
+                        'intake_course_id' => $course->id,
+                        'intake_schedule_id' => null,
+                        'medicine_id' => $medicine->id,
+                        'scheduled_time' => $takenAt,
+                        'taken_time' => $takenAt,
+                        'quantity_taken' => $dose,
+                        'deducted_quantity' => 0.000,
+                        'status' => IntakeLogStatus::TAKEN,
+                        'skipped_reason' => $symptom,
+                    ]);
+
+                    $responseBody = [
+                        'message' => 'Приём зафиксирован без списания остатка (подтверждено пользователем)',
                         'stock_warning' => true,
-                        'requires_confirmation' => true,
+                        'data' => $log->load(['medicine', 'intakeCourse.profile']),
                         'remaining_quantity' => $currentStock,
-                    ], 409);
+                    ];
+
+                    $this->recordIdempotency($user->id, $idempotencyKey, $requestHash, 201, $responseBody);
+
+                    return response()->json($responseBody, 201);
                 }
 
-                // Подтверждено пользователем: фиксируем приём без списания остатка
+                // Остатка достаточно: фиксируем курс и лог, атомарно списываем остаток
                 $course = IntakeCourse::firstOrCreate(
                     [
                         'profile_id' => $profile->id,
@@ -187,69 +298,41 @@ class IntakeLogController extends Controller
                     'scheduled_time' => $takenAt,
                     'taken_time' => $takenAt,
                     'quantity_taken' => $dose,
+                    'deducted_quantity' => $dose,
                     'status' => IntakeLogStatus::TAKEN,
                     'skipped_reason' => $symptom,
                 ]);
 
-                return response()->json([
-                    'message' => 'Приём зафиксирован без списания остатка (подтверждено пользователем)',
-                    'stock_warning' => true,
+                DB::table('medicines')
+                    ->where('id', $medicine->id)
+                    ->where('quantity', '>=', $dose)
+                    ->decrement('quantity', $dose);
+
+                $medicine->refresh();
+                if ($medicine->quantity <= 0) {
+                    $medicine->status = MedicineStatus::FINISHED;
+                    $medicine->save();
+                }
+
+                $responseData = [
+                    'message' => 'Разовый приём успешно зафиксирован, остаток списан.',
                     'data' => $log->load(['medicine', 'intakeCourse.profile']),
-                    'remaining_quantity' => $currentStock,
-                ], 201);
+                    'remaining_quantity' => (float) $medicine->quantity,
+                ];
+
+                $this->recordIdempotency($user->id, $idempotencyKey, $requestHash, 201, $responseData);
+
+                return response()->json($responseData, 201);
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($idempotencyKey && ($e->getCode() == 23000 || str_contains($e->getMessage(), 'idempotency_keys'))) {
+                $retry = $this->checkIdempotency($user->id, $idempotencyKey, $requestHash);
+                if ($retry !== null) {
+                    return $retry;
+                }
             }
-
-            // Остатка достаточно: фиксируем курс и лог, атомарно списываем остаток
-            $course = IntakeCourse::firstOrCreate(
-                [
-                    'profile_id' => $profile->id,
-                    'medicine_id' => $medicine->id,
-                    'dosage_instruction' => 'По требованию (PRN)',
-                ],
-                [
-                    'title' => 'По требованию: ' . ($medicine->custom_trade_name ?: ($medicine->referenceMedicine?->trade_name ?? 'Медикамент')),
-                    'start_date' => Carbon::today(),
-                    'end_date' => null,
-                    'dosage_quantity' => $dose,
-                    'notes' => 'Симптоматический приём по необходимости',
-                    'is_active' => true,
-                ]
-            );
-
-            $log = IntakeLog::create([
-                'intake_course_id' => $course->id,
-                'intake_schedule_id' => null,
-                'medicine_id' => $medicine->id,
-                'scheduled_time' => $takenAt,
-                'taken_time' => $takenAt,
-                'quantity_taken' => $dose,
-                'status' => IntakeLogStatus::TAKEN,
-                'skipped_reason' => $symptom,
-            ]);
-
-            DB::table('medicines')
-                ->where('id', $medicine->id)
-                ->where('quantity', '>=', $dose)
-                ->decrement('quantity', $dose);
-
-            $medicine->refresh();
-            if ($medicine->quantity <= 0) {
-                $medicine->status = MedicineStatus::FINISHED;
-                $medicine->save();
-            }
-
-            $responseData = [
-                'message' => 'Разовый приём успешно зафиксирован, остаток списан.',
-                'data' => $log->load(['medicine', 'intakeCourse.profile']),
-                'remaining_quantity' => (float) $medicine->quantity,
-            ];
-
-            if ($idempotencyKey) {
-                \Illuminate\Support\Facades\Cache::put('idempotency:quick_take:' . $user->id . ':' . $idempotencyKey, $responseData, now()->addMinutes(10));
-            }
-
-            return response()->json($responseData, 201);
-        });
+            throw $e;
+        }
     }
 
     /**
@@ -257,104 +340,137 @@ class IntakeLogController extends Controller
      * Требование ТЗ:
      * 1) Менять статус лога на 'taken' и фиксировать taken_time;
      * 2) Использовать DB::transaction с пессимистической блокировкой lockForUpdate;
-     * 3) Проверка идемпотентности: повторный вызов не списывает остаток дважды;
-     * 4) Проверка физического остатка: при нехватке требовать confirm_without_stock (409)
+     * 3) Проверка идемпотентности через таблицу idempotency_keys;
+     * 4) Сохранять deducted_quantity фактически списанного количества;
+     * 5) Проверка физического остатка: при нехватке требовать confirm_without_stock (409)
      *    либо фиксировать приём без списания при наличии флага (200).
      */
     public function take(Request $request, int $id): JsonResponse
     {
         $user = $request->user();
         $userProfileIds = $user->profiles()->pluck('id');
+        $idempotencyKey = $request->header('X-Idempotency-Key') ?? $request->input('idempotency_key');
+        $requestHash = $this->computeRequestHash($request);
 
-        return DB::transaction(function () use ($request, $id, $userProfileIds) {
-            $intakeLog = IntakeLog::lockForUpdate()
-                ->with('intakeCourse')
-                ->findOrFail($id);
-
-            // Проверка прав доступа: лог должен относиться к профилю текущего пользователя
-            if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
-                return response()->json(['message' => 'Доступ к данному приему запрещен (IDOR).'], 403);
+        if ($idempotencyKey) {
+            $existing = $this->checkIdempotency($user->id, $idempotencyKey, $requestHash);
+            if ($existing !== null) {
+                return $existing;
             }
+        }
 
-            $medicineId = $intakeLog->medicine_id ?? $intakeLog->intakeCourse?->medicine_id;
-            $medicine = $medicineId ? Medicine::lockForUpdate()->find($medicineId) : null;
+        try {
+            return DB::transaction(function () use ($request, $id, $userProfileIds, $user, $idempotencyKey, $requestHash) {
+                $intakeLog = IntakeLog::lockForUpdate()
+                    ->with('intakeCourse')
+                    ->findOrFail($id);
 
-            // Идемпотентность: если прием уже был зафиксирован ранее, не списывать повторно
-            if ($intakeLog->status === IntakeLogStatus::TAKEN) {
-                return response()->json([
-                    'message' => 'Приём лекарства уже был зафиксирован ранее.',
-                    'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
-                    'remaining_quantity' => (float) ($medicine?->quantity ?? 0),
-                ], 200);
-            }
-
-            $amountToDeduct = (float) ($intakeLog->quantity_taken ?: ($intakeLog->intakeCourse?->dosage_quantity ?? 1.0));
-            if (! $intakeLog->quantity_taken) {
-                $intakeLog->quantity_taken = $amountToDeduct;
-            }
-
-            // Если физическое лекарство не привязано к логу или курсу
-            if (! $medicine) {
-                $intakeLog->status = IntakeLogStatus::TAKEN;
-                $intakeLog->taken_time = Carbon::now();
-                $intakeLog->save();
-
-                return response()->json([
-                    'message' => 'Приём лекарства успешно зафиксирован.',
-                    'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
-                    'remaining_quantity' => 0.0,
-                ], 200);
-            }
-
-            $currentStock = (float) $medicine->quantity;
-
-            // Проверка наличия физического остатка
-            if ($currentStock < $amountToDeduct) {
-                // Если передан флаг confirm_without_stock:
-                if ($request->boolean('confirm_without_stock')) {
-                    $intakeLog->status = IntakeLogStatus::TAKEN;
-                    $intakeLog->taken_time = Carbon::now();
-                    $intakeLog->save();
-
-                    return response()->json([
-                        'message' => 'Приём зафиксирован без списания остатка (подтверждено пользователем)',
-                        'stock_warning' => true,
-                        'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
-                        'remaining_quantity' => $currentStock,
-                    ], 200);
+                // Проверка прав доступа: лог должен относиться к профилю текущего пользователя
+                if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
+                    return response()->json(['message' => 'Доступ к данному приему запрещен (IDOR).'], 403);
                 }
 
-                // Если флаг confirm_without_stock НЕ передан:
-                return response()->json([
-                    'message' => 'Недостаточно препарата в аптечке для списания остатка. Подтвердите приём без списания.',
-                    'stock_warning' => true,
-                    'requires_confirmation' => true,
-                    'remaining_quantity' => $currentStock,
-                ], 409);
+                $medicineId = $intakeLog->medicine_id ?? $intakeLog->intakeCourse?->medicine_id;
+                $medicine = $medicineId ? Medicine::lockForUpdate()->find($medicineId) : null;
+
+                // Идемпотентность: если прием уже был зафиксирован ранее, не списывать повторно
+                if ($intakeLog->status === IntakeLogStatus::TAKEN) {
+                    $responseBody = [
+                        'message' => 'Приём лекарства уже был зафиксирован ранее.',
+                        'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                        'remaining_quantity' => (float) ($medicine?->quantity ?? 0),
+                    ];
+                    $this->recordIdempotency($user->id, $idempotencyKey, $requestHash, 200, $responseBody);
+                    return response()->json($responseBody, 200);
+                }
+
+                $amountToDeduct = (float) ($intakeLog->quantity_taken ?: ($intakeLog->intakeCourse?->dosage_quantity ?? 1.0));
+                if (! $intakeLog->quantity_taken) {
+                    $intakeLog->quantity_taken = $amountToDeduct;
+                }
+
+                // Если физическое лекарство не привязано к логу или курсу
+                if (! $medicine) {
+                    $intakeLog->status = IntakeLogStatus::TAKEN;
+                    $intakeLog->taken_time = Carbon::now();
+                    $intakeLog->deducted_quantity = 0.000;
+                    $intakeLog->save();
+
+                    $responseBody = [
+                        'message' => 'Приём лекарства успешно зафиксирован.',
+                        'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                        'remaining_quantity' => 0.0,
+                    ];
+                    $this->recordIdempotency($user->id, $idempotencyKey, $requestHash, 200, $responseBody);
+                    return response()->json($responseBody, 200);
+                }
+
+                $currentStock = (float) $medicine->quantity;
+
+                // Проверка наличия физического остатка
+                if ($currentStock < $amountToDeduct) {
+                    // Если передан флаг confirm_without_stock:
+                    if ($request->boolean('confirm_without_stock')) {
+                        $intakeLog->status = IntakeLogStatus::TAKEN;
+                        $intakeLog->taken_time = Carbon::now();
+                        $intakeLog->deducted_quantity = 0.000;
+                        $intakeLog->save();
+
+                        $responseBody = [
+                            'message' => 'Приём зафиксирован без списания остатка (подтверждено пользователем)',
+                            'stock_warning' => true,
+                            'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                            'remaining_quantity' => $currentStock,
+                        ];
+                        $this->recordIdempotency($user->id, $idempotencyKey, $requestHash, 200, $responseBody);
+                        return response()->json($responseBody, 200);
+                    }
+
+                    // Если флаг confirm_without_stock НЕ передан:
+                    return response()->json([
+                        'message' => 'Недостаточно препарата в аптечке для списания остатка. Подтвердите приём без списания.',
+                        'stock_warning' => true,
+                        'requires_confirmation' => true,
+                        'remaining_quantity' => $currentStock,
+                    ], 409);
+                }
+
+                // Если остатка достаточно: атомарно списать остаток
+                $intakeLog->status = IntakeLogStatus::TAKEN;
+                $intakeLog->taken_time = Carbon::now();
+                $intakeLog->deducted_quantity = $amountToDeduct;
+                $intakeLog->save();
+
+                DB::table('medicines')
+                    ->where('id', $medicine->id)
+                    ->where('quantity', '>=', $amountToDeduct)
+                    ->decrement('quantity', $amountToDeduct);
+
+                $medicine->refresh();
+                if ($medicine->quantity <= 0) {
+                    $medicine->status = MedicineStatus::FINISHED;
+                    $medicine->save();
+                }
+
+                $responseBody = [
+                    'message' => 'Приём лекарства успешно зафиксирован. Остаток списан.',
+                    'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                    'remaining_quantity' => (float) $medicine->quantity,
+                ];
+
+                $this->recordIdempotency($user->id, $idempotencyKey, $requestHash, 200, $responseBody);
+
+                return response()->json($responseBody, 200);
+            }, 5);
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($idempotencyKey && ($e->getCode() == 23000 || str_contains($e->getMessage(), 'idempotency_keys'))) {
+                $retry = $this->checkIdempotency($user->id, $idempotencyKey, $requestHash);
+                if ($retry !== null) {
+                    return $retry;
+                }
             }
-
-            // Если остатка достаточно: атомарно списать остаток
-            $intakeLog->status = IntakeLogStatus::TAKEN;
-            $intakeLog->taken_time = Carbon::now();
-            $intakeLog->save();
-
-            DB::table('medicines')
-                ->where('id', $medicine->id)
-                ->where('quantity', '>=', $amountToDeduct)
-                ->decrement('quantity', $amountToDeduct);
-
-            $medicine->refresh();
-            if ($medicine->quantity <= 0) {
-                $medicine->status = MedicineStatus::FINISHED;
-                $medicine->save();
-            }
-
-            return response()->json([
-                'message' => 'Приём лекарства успешно зафиксирован. Остаток списан.',
-                'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
-                'remaining_quantity' => (float) $medicine->quantity,
-            ], 200);
-        }, 5);
+            throw $e;
+        }
     }
 
     /**
@@ -449,8 +565,8 @@ class IntakeLogController extends Controller
 
     /**
      * Отмена фиксации приёма лекарства (Undo).
-     * Возвращает списанный остаток физическому препарату, сбрасывает статус в SCHEDULED
-     * и очищает taken_time / skipped_reason с аудитом операции.
+     * Возвращает ТОЛЬКО фактически списанный остаток (deducted_quantity) физическому препарату,
+     * сбрасывает статус в SCHEDULED под lockForUpdate, работает идемпотентно и с проверкой прав.
      */
     public function undo(Request $request, int $id): JsonResponse
     {
@@ -462,24 +578,32 @@ class IntakeLogController extends Controller
                 ->with(['intakeCourse', 'medicine'])
                 ->findOrFail($id);
 
+            // Проверка прав доступа (IDOR)
             if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
                 return response()->json(['message' => 'Доступ запрещен (IDOR).'], 403);
             }
 
+            $medicineId = $intakeLog->medicine_id ?? $intakeLog->intakeCourse?->medicine_id;
+            $medicine = $medicineId ? Medicine::lockForUpdate()->find($medicineId) : null;
+            $currentStock = (float) ($medicine?->quantity ?? 0.0);
+
+            // Идемпотентность: повторный откат лога, уже находящегося в SCHEDULED, возвращает 200
             if ($intakeLog->status === IntakeLogStatus::SCHEDULED) {
                 return response()->json([
                     'message' => 'Приём уже находится в статусе ожидания (scheduled).',
-                ], 409);
+                    'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+                    'remaining_quantity' => $currentStock,
+                    'refunded_quantity' => 0.0,
+                ], 200);
             }
 
-            $medicineId = $intakeLog->medicine_id ?? $intakeLog->intakeCourse?->medicine_id;
-            $medicine = $medicineId ? Medicine::lockForUpdate()->find($medicineId) : null;
-            $remainingQuantity = 0.0;
+            $refundedQuantity = 0.0;
 
             if ($intakeLog->status === IntakeLogStatus::TAKEN) {
-                $amountToRefund = (float) ($intakeLog->quantity_taken ?: ($intakeLog->intakeCourse?->dosage_quantity ?? 1.0));
+                // Возвращаем строго фактически списанное количество (deducted_quantity)
+                $amountToRefund = (float) ($intakeLog->deducted_quantity ?? 0.0);
 
-                if ($medicine) {
+                if ($amountToRefund > 0 && $medicine) {
                     DB::table('medicines')
                         ->where('id', $medicine->id)
                         ->increment('quantity', $amountToRefund);
@@ -489,30 +613,30 @@ class IntakeLogController extends Controller
                         $medicine->status = MedicineStatus::ACTIVE;
                         $medicine->save();
                     }
-                    $remainingQuantity = (float) $medicine->quantity;
+                    $currentStock = (float) $medicine->quantity;
+                    $refundedQuantity = $amountToRefund;
                 }
 
                 $intakeLog->status = IntakeLogStatus::SCHEDULED;
                 $intakeLog->taken_time = null;
+                $intakeLog->deducted_quantity = 0.000;
                 $intakeLog->save();
 
-                \Illuminate\Support\Facades\Log::info("IntakeLog #{$id} status TAKEN undone by user #{$user->id}. Restored {$amountToRefund} units.");
-            } elseif ($intakeLog->status === IntakeLogStatus::SKIPPED) {
+                \Illuminate\Support\Facades\Log::info("IntakeLog #{$id} status TAKEN undone by user #{$user->id}. Restored {$refundedQuantity} units.");
+            } elseif ($intakeLog->status === IntakeLogStatus::SKIPPED || $intakeLog->status === IntakeLogStatus::MISSED) {
                 $intakeLog->status = IntakeLogStatus::SCHEDULED;
                 $intakeLog->skipped_reason = null;
+                $intakeLog->deducted_quantity = 0.000;
                 $intakeLog->save();
 
-                if ($medicine) {
-                    $remainingQuantity = (float) $medicine->quantity;
-                }
-
-                \Illuminate\Support\Facades\Log::info("IntakeLog #{$id} status SKIPPED undone by user #{$user->id}.");
+                \Illuminate\Support\Facades\Log::info("IntakeLog #{$id} status {$intakeLog->status->value} undone by user #{$user->id}.");
             }
 
             return response()->json([
                 'message' => 'Статус приёма успешно отменён, остаток препарата восстановлен.',
                 'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
-                'remaining_quantity' => $remainingQuantity,
+                'remaining_quantity' => $currentStock,
+                'refunded_quantity' => $refundedQuantity,
             ], 200);
         });
     }

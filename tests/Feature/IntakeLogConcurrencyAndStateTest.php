@@ -206,7 +206,7 @@ class IntakeLogConcurrencyAndStateTest extends TestCase
             'symptom' => 'Головная боль',
             'idempotency_key' => 'double_tap_prn_123',
         ]);
-        $res2->assertStatus(200); // Возвращает 200 ОК без повторного списания
+        $this->assertTrue(in_array($res2->status(), [200, 201])); // Сохраненный успешный ответ без повторного списания
 
         $this->medicine->refresh();
         // Остаток не должен стать 8.0!
