@@ -53,6 +53,7 @@ class MedicationSafetyService
         // 1. Детекция дублирования действующего вещества (МНН) по активным курсам приёма
         $overlapWarning = $this->checkSubstanceOverlap($profile, $medicine, $inn, $atcCode, $tradeName, $unverifiedChecks);
         if ($overlapWarning !== null) {
+            $hasCritical = true;
             $warnings[] = $overlapWarning;
         }
 
@@ -131,6 +132,7 @@ class MedicationSafetyService
         $targetInnClean = mb_strtolower(trim($targetInn));
         $targetAtcPrefix = mb_substr(trim($targetAtc), 0, 4); // Группа АТХ (например M01A)
         $targetMedicineId = $targetMedicine instanceof Medicine ? $targetMedicine->id : null;
+        $targetRefId = $targetMedicine instanceof ReferenceMedicine ? $targetMedicine->id : ($targetMedicine->reference_medicine_id ?? null);
 
         foreach ($activeCourses as $course) {
             $activeMed = $course->medicine;
@@ -139,8 +141,13 @@ class MedicationSafetyService
                 continue;
             }
 
-            // Исключаем сравнение с самим собой при редактировании/повторном назначении того же курса
+            // Исключаем сравнение с самим собой при редактировании/повторной проверке того же медикамента
             if ($targetMedicineId && $activeMed->id === $targetMedicineId) {
+                continue;
+            }
+
+            // Исключаем сравнение с эталонным препаратом, на котором основан этот же курс (self-exclusion)
+            if ($targetMedicine instanceof ReferenceMedicine && $activeMed->reference_medicine_id === $targetMedicine->id) {
                 continue;
             }
 
@@ -252,24 +259,34 @@ class MedicationSafetyService
         $isCritical = false;
         $compLower = mb_strtolower($composition);
 
-        // 1. Цитрусовые (апельсиновые/лимонные ароматизаторы, лимонная кислота)
+        // 1. Цитрусовые (апельсиновые/лимонные ароматизаторы, лимонная кислота, E330)
         $hasCitrusAllergy = in_array('citrus', $allergies, true)
             || in_array('цитрус', $allergies, true)
             || in_array('цитрусовые', $allergies, true)
-            || in_array('апельсин', $allergies, true);
+            || in_array('апельсин', $allergies, true)
+            || in_array('лимон', $allergies, true)
+            || in_array('лимонная кислота', $allergies, true)
+            || in_array('citric_acid', $allergies, true)
+            || in_array('e330', $allergies, true);
 
         if ($hasCitrusAllergy) {
             $hasCitrusInDrug = in_array('citrus', $allergenTags, true)
                 || in_array('citric_acid', $allergenTags, true)
+                || in_array('e330', $allergenTags, true)
                 || str_contains($compLower, 'апельсин')
                 || str_contains($compLower, 'лимон')
                 || str_contains($compLower, 'цитрус')
                 || str_contains($compLower, 'orange')
-                || str_contains($compLower, 'lemon');
+                || str_contains($compLower, 'lemon')
+                || str_contains($compLower, 'citric')
+                || str_contains($compLower, 'e330')
+                || str_contains($compLower, 'e-330')
+                || str_contains($compLower, 'е330') // кириллическая е
+                || str_contains($compLower, 'е-330');
 
             if ($hasCitrusInDrug) {
                 $isCritical = true;
-                $warnings[] = "Предостережение по аллергии: Препарат «{$tradeName}» содержит вспомогательные компоненты или ароматизаторы цитрусового ряда. У пациента диагностирована аллергия на цитрусовые!";
+                $warnings[] = "Предостережение по аллергии: Препарат «{$tradeName}» содержит вспомогательные компоненты или ароматизаторы цитрусового ряда (лимонная кислота / E330). У пациента диагностирована аллергия на цитрусовые!";
             }
         }
 
@@ -279,10 +296,15 @@ class MedicationSafetyService
             || in_array('лактазная недостаточность', $allergies, true);
 
         if ($hasLactoseAllergy) {
-            $hasLactoseInDrug = in_array('lactose', $allergenTags, true)
+            // Проверка на отрицания («без лактозы», «не содержит лактозу», «lactose-free»)
+            $hasLactoseNegation = (bool) preg_match('/(без\s+лактоз|не\s+содержит\s+лактоз|отсутстви[ея]\s+лактоз|lactose[\s\-]?free|free\s+of\s+lactose)/iu', $composition);
+
+            $hasLactoseInDrug = (
+                in_array('lactose', $allergenTags, true)
                 || str_contains($compLower, 'лактоз')
                 || str_contains($compLower, 'молочный сахар')
-                || str_contains($compLower, 'lactose');
+                || str_contains($compLower, 'lactose')
+            ) && ! $hasLactoseNegation;
 
             if ($hasLactoseInDrug) {
                 $warnings[] = "Внимание: Препарат «{$tradeName}» содержит лактозу в качестве вспомогательного вещества. У пациента отмечена непереносимость лактозы (лактазная недостаточность).";

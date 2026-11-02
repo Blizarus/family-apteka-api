@@ -19,26 +19,33 @@ class MedicationSafetyController extends Controller
     public function check(Request $request, MedicationSafetyService $safetyService): JsonResponse
     {
         $validated = $request->validate([
-            'profile_id' => ['required', 'integer', 'exists:profiles,id'],
-            'medicine_id' => ['nullable', 'required_without:reference_medicine_id', 'integer', 'exists:medicines,id'],
-            'reference_medicine_id' => ['nullable', 'required_without:medicine_id', 'integer', 'exists:reference_medicines,id'],
+            'profile_id' => ['required', 'integer'],
+            'medicine_id' => ['nullable', 'required_without:reference_medicine_id', 'integer'],
+            'reference_medicine_id' => ['nullable', 'required_without:medicine_id', 'integer'],
         ]);
 
-        $profile = Profile::findOrFail($validated['profile_id']);
+        $profile = Profile::where('id', $validated['profile_id'])
+            ->where('user_id', $request->user()->id)
+            ->first();
 
-        // Проверка IDOR: профиль должен принадлежать текущему пользователю
-        if ($profile->user_id !== $request->user()->id) {
+        // Защита от оракула 404/403: чужие и несуществующие профили отдают строго 403 Forbidden
+        if (! $profile) {
             return response()->json(['message' => 'Доступ к указанному профилю запрещен (IDOR protection).'], 403);
         }
 
         // Определение целевого препарата
         if (! empty($validated['medicine_id'])) {
-            $medicine = Medicine::with(['referenceMedicine', 'medicineBox.users'])->findOrFail($validated['medicine_id']);
+            $medicine = Medicine::with(['referenceMedicine', 'medicineBox.users'])
+                ->find($validated['medicine_id']);
 
-            // Проверка IDOR: пользователь должен иметь доступ к аптечке, где лежит лекарство
-            $hasAccess = $medicine->medicineBox->users()
-                ->where('users.id', $request->user()->id)
-                ->exists();
+            $hasAccess = false;
+            if ($medicine && $medicine->medicineBox) {
+                if (isset($medicine->medicineBox->user_id) && $medicine->medicineBox->user_id === $request->user()->id) {
+                    $hasAccess = true;
+                } elseif ($medicine->medicineBox->users()->where('users.id', $request->user()->id)->exists()) {
+                    $hasAccess = true;
+                }
+            }
 
             if (! $hasAccess) {
                 return response()->json(['message' => 'Доступ к указанной аптечке запрещен (IDOR protection).'], 403);
@@ -46,7 +53,10 @@ class MedicationSafetyController extends Controller
 
             $target = $medicine;
         } else {
-            $target = ReferenceMedicine::findOrFail($validated['reference_medicine_id']);
+            $target = ReferenceMedicine::find($validated['reference_medicine_id']);
+            if (! $target) {
+                return response()->json(['message' => 'Препарат справочника не найден.'], 404);
+            }
         }
 
         $report = $safetyService->checkSafety($profile, $target);

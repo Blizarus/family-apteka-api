@@ -530,12 +530,11 @@ class MedicationSafetyTest extends TestCase
         ])->assertStatus(422)
           ->assertJsonValidationErrors(['profile_id']);
 
-        // 2. Несуществующий profile_id
+        // 2. Несуществующий profile_id возвращает 403 Forbidden (устранение оракула перечисления IDOR)
         $this->postJson('/api/medication-safety/check', [
             'profile_id' => 999999,
             'reference_medicine_id' => $this->ibuprofen->id,
-        ])->assertStatus(422)
-          ->assertJsonValidationErrors(['profile_id']);
+        ])->assertStatus(403);
 
         // 3. Отсутствие обоих идентификаторов лекарства (ни medicine_id, ни reference_medicine_id)
         $this->postJson('/api/medication-safety/check', [
