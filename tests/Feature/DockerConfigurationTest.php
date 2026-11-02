@@ -57,7 +57,7 @@ class DockerConfigurationTest extends TestCase
         $this->assertStringContainsString('redis:', $compose);
 
         // Проверка портов с обязательной привязкой к 127.0.0.1 (защита от несанкционированного доступа извне)
-        $this->assertStringContainsString('8000:80', $compose);
+        $this->assertStringContainsString('127.0.0.1:8000:80', $compose);
         $this->assertStringContainsString('127.0.0.1:3306:3306', $compose);
         $this->assertStringContainsString('127.0.0.1:6379:6379', $compose);
 
@@ -84,7 +84,7 @@ class DockerConfigurationTest extends TestCase
     {
         $expiration = config('sanctum.expiration');
         $this->assertNotNull($expiration, 'Срок жизни токенов Sanctum должен быть задан явно, а не null');
-        $this->assertGreaterThan(0, $expiration, 'Срок жизни токена должен быть положительным числом минут');
+        $this->assertEquals(10080, $expiration, 'Срок жизни токена должен составлять 10080 минут (7 дней)');
     }
 
     /**
