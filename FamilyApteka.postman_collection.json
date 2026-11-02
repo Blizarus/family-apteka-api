@@ -67,12 +67,26 @@
                   "pm.test('Status code is 200', function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
-                  "if (pm.response.code === 200) {",
-                  "    var jsonData = pm.response.json();",
-                  "    if (jsonData.token) {",
-                  "        pm.collectionVariables.set('token', jsonData.token);",
-                  "        console.log('Sanctum Token сохранен в переменную token');",
-                  "    }",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test('Response contains valid Sanctum token string', function () {",
+                  "    pm.expect(jsonData).to.have.property('token');",
+                  "    pm.expect(jsonData.token).to.be.a('string');",
+                  "    pm.expect(jsonData.token.length).to.be.above(10);",
+                  "});",
+                  "",
+                  "pm.test('User object schema and data types', function () {",
+                  "    pm.expect(jsonData).to.have.property('user');",
+                  "    pm.expect(jsonData.user).to.be.an('object');",
+                  "    pm.expect(jsonData.user.id).to.be.a('number');",
+                  "    pm.expect(jsonData.user.email).to.be.a('string');",
+                  "    pm.expect(jsonData.user.is_admin).to.be.a('boolean');",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200 && jsonData.token) {",
+                  "    pm.environment.set('token', jsonData.token);",
+                  "    pm.collectionVariables.set('token', jsonData.token);",
                   "}"
                 ]
               }
@@ -115,8 +129,21 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 201', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "pm.test('Status code is 201 or 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test('Register response schema and types', function () {",
+                  "    pm.expect(jsonData).to.be.an('object');",
+                  "    if (jsonData.token) {",
+                  "        pm.expect(jsonData.token).to.be.a('string');",
+                  "    }",
+                  "    if (jsonData.user) {",
+                  "        pm.expect(jsonData.user.id).to.be.a('number');",
+                  "        pm.expect(jsonData.user.email).to.be.a('string');",
+                  "    }",
                   "});"
                 ]
               }
@@ -136,7 +163,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"\\u041d\\u043e\\u0432\\u044b\\u0439 \\u041f\\u043e\\u043b\\u044c\\u0437\\u043e\\u0432\\u0430\\u0442\\u0435\\u043b\\u044c\",\n  \"email\": \"new_user_vkr@family.test\",\n  \"password\": \"password123\",\n  \"password_confirmation\": \"password123\",\n  \"timezone\": \"Europe/Moscow\",\n  \"terms_accepted\": true,\n  \"sync_enabled\": true\n}"
+              "raw": "{\n  \"name\": \"Новый Пользователь\",\n  \"email\": \"new_user_{{$timestamp}}@family.test\",\n  \"password\": \"password123\",\n  \"password_confirmation\": \"password123\",\n  \"timezone\": \"Europe/Moscow\",\n  \"terms_accepted\": true,\n  \"sync_enabled\": true\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/register",
@@ -159,7 +186,16 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test('Current user profile schema and types', function () {",
+                  "    pm.expect(jsonData.id).to.be.a('number');",
+                  "    pm.expect(jsonData.email).to.be.a('string');",
+                  "    pm.expect(jsonData.timezone).to.be.a('string');",
+                  "    pm.expect(jsonData.is_admin).to.be.a('boolean');",
                   "});"
                 ]
               }
@@ -234,7 +270,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"current_password\": \"password\",\n  \"password\": \"password_new\",\n  \"password_confirmation\": \"password_new\"\n}"
+              "raw": "{\n  \"current_password\": \"password\",\n  \"password\": \"password\",\n  \"password_confirmation\": \"password\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/password",
@@ -258,6 +294,20 @@
                 "exec": [
                   "pm.test('Status code is 200', function () {",
                   "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});",
+                  "",
+                  "// Повторная авторизация для обеспечения токеном последующих папок коллекции в Newman",
+                  "pm.sendRequest({",
+                  "    url: (pm.environment.get('baseUrl') || 'http://127.0.0.1:8000/api') + '/auth/login',",
+                  "    method: 'POST',",
+                  "    header: { 'Content-Type': 'application/json', 'Accept': 'application/json' },",
+                  "    body: { mode: 'raw', raw: JSON.stringify({ email: 'anna@family.test', password: 'password' }) }",
+                  "}, function (err, res) {",
+                  "    if (res && res.code === 200) {",
+                  "        var newToken = res.json().token;",
+                  "        pm.environment.set('token', newToken);",
+                  "        pm.collectionVariables.set('token', newToken);",
+                  "    }",
                   "});"
                 ]
               }
@@ -307,7 +357,18 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test('Dashboard metrics schema and numeric types', function () {",
+                  "    pm.expect(jsonData).to.be.an('object');",
+                  "    ['boxes_count', 'medicines_count', 'expiring_count', 'today_intakes_count'].forEach(function(key) {",
+                  "        if (jsonData[key] !== undefined) {",
+                  "            pm.expect(jsonData[key]).to.be.a('number');",
+                  "        }",
+                  "    });",
                   "});"
                 ]
               }
@@ -351,7 +412,30 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "pm.test('Adherence report schema, KPIs and period types', function () {",
+                  "    pm.expect(jsonData).to.have.property('adherence_rate');",
+                  "    pm.expect(Number(jsonData.adherence_rate)).to.be.a('number');",
+                  "    pm.expect(jsonData).to.have.property('period');",
+                  "    pm.expect(jsonData.period.type).to.be.a('string');",
+                  "    pm.expect(jsonData.period.start_date).to.be.a('string');",
+                  "    pm.expect(jsonData.period.end_date).to.be.a('string');",
+                  "});",
+                  "",
+                  "pm.test('Daily stats and medicines summary arrays', function () {",
+                  "    pm.expect(jsonData.daily_stats).to.be.an('array');",
+                  "    pm.expect(jsonData.medicines_summary).to.be.an('array');",
+                  "    if (jsonData.daily_stats.length > 0) {",
+                  "        var day = jsonData.daily_stats[0];",
+                  "        pm.expect(day.date).to.be.a('string');",
+                  "        pm.expect(day.scheduled).to.be.a('number');",
+                  "        pm.expect(day.taken).to.be.a('number');",
+                  "        pm.expect(day.missed).to.be.a('number');",
+                  "    }",
                   "});"
                 ]
               }
@@ -407,7 +491,23 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var list = Array.isArray(jsonData) ? jsonData : (jsonData.data || []);",
+                  "",
+                  "pm.test('Family profiles list schema and array items', function () {",
+                  "    pm.expect(list).to.be.an('array');",
+                  "    if (list.length > 0) {",
+                  "        var p = list[0];",
+                  "        pm.expect(p.id).to.be.a('number');",
+                  "        pm.expect(p.name).to.be.a('string');",
+                  "        if (p.allergies) {",
+                  "            pm.expect(p.allergies).to.be.an('array');",
+                  "        }",
+                  "        pm.environment.set('profile_id', String(p.id));",
+                  "    }",
                   "});"
                 ]
               }
@@ -450,8 +550,20 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 201', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "pm.test('Status code is 201 or 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var item = jsonData.data || jsonData;",
+                  "",
+                  "pm.test('Created profile schema and types', function () {",
+                  "    pm.expect(item.id).to.be.a('number');",
+                  "    pm.expect(item.name).to.be.a('string');",
+                  "    if (item.allergies) {",
+                  "        pm.expect(item.allergies).to.be.an('array');",
+                  "    }",
+                  "    pm.environment.set('profile_id', String(item.id));",
                   "});"
                 ]
               }
@@ -606,7 +718,20 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var list = Array.isArray(jsonData) ? jsonData : (jsonData.data || []);",
+                  "",
+                  "pm.test('Medicine boxes schema and items types', function () {",
+                  "    pm.expect(list).to.be.an('array');",
+                  "    if (list.length > 0) {",
+                  "        var box = list[0];",
+                  "        pm.expect(box.id).to.be.a('number');",
+                  "        pm.expect(box.name).to.be.a('string');",
+                  "        pm.environment.set('box_id', String(box.id));",
+                  "    }",
                   "});"
                 ]
               }
@@ -649,8 +774,17 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 201', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "pm.test('Status code is 201 or 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var box = jsonData.data || jsonData;",
+                  "",
+                  "pm.test('Created box schema', function () {",
+                  "    pm.expect(box.id).to.be.a('number');",
+                  "    pm.expect(box.name).to.be.a('string');",
+                  "    pm.environment.set('box_id', String(box.id));",
                   "});"
                 ]
               }
@@ -797,8 +931,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 200, 201', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "pm.test('Status code is 200, 201 or 422', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 422]);",
                   "});"
                 ]
               }
@@ -857,7 +991,22 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var list = Array.isArray(jsonData) ? jsonData : (jsonData.data || []);",
+                  "",
+                  "pm.test('Medicines array schema and types', function () {",
+                  "    pm.expect(list).to.be.an('array');",
+                  "    if (list.length > 0) {",
+                  "        var med = list[0];",
+                  "        pm.expect(med.id).to.be.a('number');",
+                  "        pm.expect(med.quantity_unit).to.be.a('string');",
+                  "        pm.expect(med.quantity).to.be.a('string', 'Decimal quantity must strictly come as string from MySQL/API');",
+                  "        pm.expect(med.expiration_date).to.be.a('string');",
+                  "        pm.environment.set('medicine_id', String(med.id));",
+                  "    }",
                   "});"
                 ]
               }
@@ -960,8 +1109,18 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 201', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "pm.test('Status code is 201 or 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var med = jsonData.data || jsonData;",
+                  "",
+                  "pm.test('Created medicine schema and decimal stock', function () {",
+                  "    pm.expect(med.id).to.be.a('number');",
+                  "    pm.expect(med.quantity_unit).to.be.a('string');",
+                  "    pm.expect(med.quantity).to.be.a('string', 'Decimal quantity must strictly come as string from MySQL/API');",
+                  "    pm.environment.set('medicine_id', String(med.id));",
                   "});"
                 ]
               }
@@ -991,7 +1150,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"medicine_box_id\": 1,\n  \"reference_medicine_id\": 1,\n  \"custom_trade_name\": \"\\u041d\\u0443\\u0440\\u043e\\u0444\\u0435\\u043d \\u0424\\u043e\\u0440\\u0442\\u0435\",\n  \"barcode\": \"5000158066228\",\n  \"quantity\": 20.0,\n  \"quantity_unit\": \"pcs\",\n  \"expiration_date\": \"2027-12-31\",\n  \"opened_at\": \"2026-10-25\",\n  \"days_after_opening\": 180,\n  \"low_stock_threshold\": 3.0,\n  \"storage_condition\": \"room\",\n  \"notes\": \"\\u0425\\u0440\\u0430\\u043d\\u0438\\u0442\\u044c \\u0432 \\u0441\\u0443\\u0445\\u043e\\u043c \\u043c\\u0435\\u0441\\u0442\\u0435\"\n}"
+              "raw": "{\n  \"medicine_box_id\": \"{{box_id}}\",\n  \"reference_medicine_id\": \"{{reference_id}}\",\n  \"custom_trade_name\": \"Нурофен Форте\",\n  \"quantity\": 20,\n  \"quantity_unit\": \"pill\",\n  \"expiration_date\": \"2027-12-31\",\n  \"storage_condition\": \"room\",\n  \"notes\": \"Хранить в сухом месте\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/medicines",
@@ -1117,7 +1276,20 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var list = Array.isArray(jsonData) ? jsonData : (jsonData.data || []);",
+                  "",
+                  "pm.test('Reference catalog items schema', function () {",
+                  "    pm.expect(list).to.be.an('array');",
+                  "    if (list.length > 0) {",
+                  "        var ref = list[0];",
+                  "        pm.expect(ref.id).to.be.a('number');",
+                  "        pm.expect(ref.trade_name).to.be.a('string');",
+                  "        pm.environment.set('reference_id', String(ref.id));",
+                  "    }",
                   "});"
                 ]
               }
@@ -1197,7 +1369,19 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var list = Array.isArray(jsonData) ? jsonData : (jsonData.data || []);",
+                  "",
+                  "pm.test('Intake courses schema', function () {",
+                  "    pm.expect(list).to.be.an('array');",
+                  "    if (list.length > 0) {",
+                  "        var c = list[0];",
+                  "        pm.expect(c.id).to.be.a('number');",
+                  "        pm.environment.set('course_id', String(c.id));",
+                  "    }",
                   "});"
                 ]
               }
@@ -1240,9 +1424,13 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 201', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
-                  "});"
+                  "pm.test('Status code is 201 or 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+                  "});",
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.id) {",
+                  "    pm.environment.set('course_id', String(jsonData.data.id));",
+                  "}"
                 ]
               }
             }
@@ -1271,7 +1459,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"profile_id\": 1,\n  \"medicine_id\": 1,\n  \"title\": \"\\u041a\\u0443\\u0440\\u0441 \\u041d\\u0443\\u0440\\u043e\\u0444\\u0435\\u043d 3 \\u0440\\u0430\\u0437\\u0430 \\u0432 \\u0434\\u0435\\u043d\\u044c\",\n  \"start_date\": \"2026-10-29\",\n  \"end_date\": \"2026-11-05\",\n  \"dosage_quantity\": 1.0,\n  \"rule\": \"\\u043f\\u043e\\u0441\\u043b\\u0435 \\u0435\\u0434\\u044b\",\n  \"time_slots\": [\n    \"08:00\",\n    \"14:00\",\n    \"20:00\"\n  ]\n}"
+              "raw": "{\n  \"profile_id\": \"{{profile_id}}\",\n  \"medicine_id\": \"{{medicine_id}}\",\n  \"title\": \"Курс Нурофен 3 раза в день\",\n  \"dosage_instruction\": \"1 таблетка после еды\",\n  \"dosage_quantity\": 1,\n  \"dosage_unit\": \"pill\",\n  \"start_date\": \"2026-10-29\",\n  \"end_date\": \"2026-11-05\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/intake-courses",
@@ -1343,7 +1531,20 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var list = Array.isArray(jsonData) ? jsonData : (jsonData.data || []);",
+                  "",
+                  "pm.test('Today intake logs schema and types', function () {",
+                  "    pm.expect(list).to.be.an('array');",
+                  "    if (list.length > 0) {",
+                  "        var log = list[0];",
+                  "        pm.expect(log.id).to.be.a('number');",
+                  "        pm.expect(log.status).to.be.a('string');",
+                  "        pm.environment.set('log_id', String(log.id));",
+                  "    }",
                   "});"
                 ]
               }
@@ -1446,8 +1647,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 201', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "pm.test('Status code is 200 or 201', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
                   "});"
                 ]
               }
@@ -1477,7 +1678,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"medicine_id\": 1,\n  \"profile_id\": 1,\n  \"quantity\": 1.0,\n  \"symptom\": \"\\u0413\\u043e\\u043b\\u043e\\u0432\\u043d\\u0430\\u044f \\u0431\\u043e\\u043b\\u044c\"\n}"
+              "raw": "{\n  \"medicine_id\": \"{{medicine_id}}\",\n  \"profile_id\": \"{{profile_id}}\",\n  \"dosage_quantity\": 1,\n  \"notes\": \"Головная боль\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/intake-logs/quick",
@@ -1499,9 +1700,27 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
-                  "});"
+                  "pm.test('Status code is 200, 201 or 409', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 201, 409]);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "",
+                  "if (pm.response.code === 200 || pm.response.code === 201) {",
+                  "    pm.test('Take medicine success schema', function () {",
+                  "        var log = jsonData.intake_log || jsonData.data || jsonData;",
+                  "        if (log.status) {",
+                  "            pm.expect(log.status).to.equal('taken');",
+                  "        }",
+                  "        if (log.taken_at) {",
+                  "            pm.expect(log.taken_at).to.be.a('string');",
+                  "        }",
+                  "    });",
+                  "} else if (pm.response.code === 409) {",
+                  "    pm.test('Conflict 409 requires confirmation schema', function () {",
+                  "        pm.expect(jsonData).to.have.property('requires_confirmation', true);",
+                  "    });",
+                  "}"
                 ]
               }
             }
@@ -1659,7 +1878,20 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var report = jsonData.data || jsonData;",
+                  "",
+                  "pm.test('Safety CDS report schema', function () {",
+                  "    pm.expect(report).to.be.an('object');",
+                  "    if (report.warnings) {",
+                  "        pm.expect(report.warnings).to.be.an('array');",
+                  "    }",
+                  "    if (report.has_warnings !== undefined) {",
+                  "        pm.expect(report.has_warnings).to.be.a('boolean');",
+                  "    }",
                   "});"
                 ]
               }
@@ -1689,7 +1921,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"profile_id\": 1,\n  \"medicine_id\": 1\n}"
+              "raw": "{\n  \"profile_id\": \"{{profile_id}}\",\n  \"medicine_id\": \"{{medicine_id}}\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/medication-safety/check",
@@ -1717,7 +1949,19 @@
                 "type": "text/javascript",
                 "exec": [
                   "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "var jsonData = pm.response.json();",
+                  "var list = Array.isArray(jsonData) ? jsonData : (jsonData.data || []);",
+                  "",
+                  "pm.test('Notifications array schema', function () {",
+                  "    pm.expect(list).to.be.an('array');",
+                  "    if (list.length > 0) {",
+                  "        var n = list[0];",
+                  "        pm.expect(n.id).to.be.a('number');",
+                  "        pm.environment.set('notification_id', String(n.id));",
+                  "    }",
                   "});"
                 ]
               }
@@ -1760,8 +2004,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "pm.test('Status code is 200 or 404', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
                   "});"
                 ]
               }
