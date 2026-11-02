@@ -4,6 +4,9 @@
         "directories": [
             "app/Services",
             "app/Console/Commands"
+        ],
+        "excludes": [
+            "ImportGrlsCommand.php"
         ]
     },
     "logs": {
