@@ -123,4 +123,55 @@ class DashboardTest extends TestCase
             ->assertJsonPath('data.today_intakes.remaining', 1)
             ->assertJsonPath('data.active_courses_count', 1);
     }
+
+    /**
+     * Клиническая безопасность FEFO-Opened (DEF-11):
+     * Вскрытые препараты с истекшим сроком после вскрытия (opened_at + days_after_opening < today)
+     * обязаны учитываться в expired_medicines, даже если заводской expiration_date еще в будущем.
+     * Вскрытые препараты, истекающие в пределах 30 дней, обязаны попадать в expiring_medicines.
+     */
+    public function test_fefo_opened_medicines_correctly_classified_in_dashboard_metrics(): void
+    {
+        $box = MedicineBox::where('name', 'Домашняя аптечка')->first();
+
+        // 1. Препарат, просроченный по сроку вскрытия (opened_at + 10 дней < today),
+        // хотя заводской срок годности еще через 1 год
+        Medicine::create([
+            'medicine_box_id' => $box->id,
+            'custom_trade_name' => 'Сироп от кашля (вскрыт)',
+            'quantity' => 1,
+            'quantity_unit' => MedicineQuantityUnit::UNIT,
+            'expiration_date' => Carbon::today()->addYear()->toDateString(),
+            'opened_at' => Carbon::today()->subDays(30)->toDateString(),
+            'days_after_opening' => 10,
+            'status' => MedicineStatus::ACTIVE,
+        ]);
+
+        // 2. Препарат, истекающий в пределах 30 дней по сроку вскрытия (истекает через 15 дней),
+        // хотя заводской срок годности еще через 1 год
+        Medicine::create([
+            'medicine_box_id' => $box->id,
+            'custom_trade_name' => 'Глазные капли (вскрыты)',
+            'quantity' => 1,
+            'quantity_unit' => MedicineQuantityUnit::UNIT,
+            'expiration_date' => Carbon::today()->addYear()->toDateString(),
+            'opened_at' => Carbon::today()->subDays(10)->toDateString(),
+            'days_after_opening' => 25,
+            'status' => MedicineStatus::ACTIVE,
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->getJson('/api/dashboard');
+
+        $response->assertStatus(200);
+
+        // Всего: 3 (из setUp) + 2 (новых) = 5
+        $response->assertJsonPath('data.total_medicines', 5);
+
+        // Просроченные: 1 (Аспирин из setUp) + 1 (Сироп от кашля с истекшим сроком вскрытия) = 2
+        $response->assertJsonPath('data.expired_medicines', 2);
+
+        // Истекающие: 1 (Називин из setUp) + 1 (Глазные капли со сроком вскрытия через 15 дней) = 2
+        $response->assertJsonPath('data.expiring_medicines', 2);
+    }
 }

@@ -13,6 +13,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class IntakeLogController extends Controller
 {
@@ -259,7 +260,14 @@ class IntakeLogController extends Controller
                     'created_at' => now(),
                     'updated_at' => now(),
                 ]);
-            } catch (\Throwable $ignored) {}
+            } catch (\Throwable $insertError) {
+                Log::warning('Не удалось сохранить ответ для ключа идемпотентности', [
+                    'user_id' => $userId,
+                    'key' => $key,
+                    'response_code' => $code,
+                    'error' => $insertError->getMessage(),
+                ]);
+            }
         }
     }
 
@@ -278,7 +286,13 @@ class IntakeLogController extends Controller
                 ->where('key', $key)
                 ->whereNull('response_code')
                 ->delete();
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+            Log::warning('Не удалось удалить резервирование ключа идемпотентности', [
+                'user_id' => $userId,
+                'key' => $key,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**

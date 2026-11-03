@@ -46,7 +46,14 @@ class AdminSecurityTest extends TestCase
      */
     public function test_external_ip_is_blocked_by_ip_filter(): void
     {
-        // 1.1 Не-администратор с внешнего IP получает 403 Forbidden (IP-фильтрация)
+        // 1.1 Неаутентифицированный гость с внешнего IP блокируется
+        $responseGuest = $this->withServerVariables([
+            'REMOTE_ADDR' => '198.51.100.42',
+        ])->getJson('/api/admin/users');
+
+        $this->assertContains($responseGuest->status(), [401, 403]);
+
+        // 1.2 Не-администратор с внешнего IP получает 403 Forbidden (IP-фильтрация)
         Sanctum::actingAs($this->regularUser);
 
         $responseRegular = $this->withServerVariables([
@@ -57,9 +64,6 @@ class AdminSecurityTest extends TestCase
             ->assertJsonPath('client_ip', '198.51.100.42');
         $this->assertStringContainsString('IP-фильтрация', $responseRegular->json('message'));
 
-        // 1.2 Гость без аутентификации с внешнего IP также получает 403 или 401
-        // (в зависимости от порядка middleware auth:sanctum vs internal ip)
-        
         // 1.3 Авторизованный администратор с внешнего IP (4G/5G) успешно получает доступ (200 OK)
         Sanctum::actingAs($this->adminUser);
 
