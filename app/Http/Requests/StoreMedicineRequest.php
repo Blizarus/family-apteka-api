@@ -26,9 +26,21 @@ class StoreMedicineRequest extends FormRequest
     {
         return [
             'medicine_box_id' => ['required', 'integer', 'exists:medicine_boxes,id'],
-            'reference_medicine_id' => ['nullable', 'integer', 'exists:reference_medicines,id'],
+            'reference_medicine_id' => [
+                'required_without:custom_trade_name',
+                'nullable',
+                'integer',
+                'exists:reference_medicines,id',
+            ],
             // Строгая проверка против инъекций и спецсимволов: допустимы только буквы, цифры, дефис, точка, скобки
-            'custom_trade_name' => ['nullable', 'string', 'max:255', 'regex:/^[\pL\pN\s\-_.,()]+$/u'],
+            'custom_trade_name' => [
+                'required_without:reference_medicine_id',
+                'nullable',
+                'string',
+                'min:2',
+                'max:255',
+                'regex:/^[\pL\pN\s\-_.,()]+$/u',
+            ],
             'barcode' => ['nullable', 'string', 'max:64', 'regex:/^[0-9A-Za-z]+$/'],
             'quantity' => ['required', 'numeric', 'min:0.001', 'max:999999.999'],
             'quantity_unit' => ['required', new Enum(MedicineQuantityUnit::class)],
@@ -48,6 +60,9 @@ class StoreMedicineRequest extends FormRequest
     {
         return [
             'medicine_box_id.required' => 'Идентификатор аптечки обязателен для заполнения.',
+            'custom_trade_name.required_without' => 'Укажите наименование препарата или выберите его из справочника.',
+            'custom_trade_name.min' => 'Наименование препарата должно содержать не менее 2 символов.',
+            'reference_medicine_id.required_without' => 'Выберите препарат из справочника или укажите наименование вручную.',
             'custom_trade_name.regex' => 'Наименование препарата содержит недопустимые спецсимволы (защита от инъекций).',
             'barcode.regex' => 'Штрихкод может содержать только латинские буквы и цифры.',
             'quantity.required' => 'Количество препарата обязательно.',
