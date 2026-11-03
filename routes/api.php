@@ -65,7 +65,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // 4. Семейный шеринг аптечки (управление участниками)
     Route::get('/medicine-boxes/{medicine_box}/members', [MedicineBoxMemberController::class, 'index']);
-    Route::post('/medicine-boxes/{medicine_box}/members', [MedicineBoxMemberController::class, 'store']);
+    Route::post('/medicine-boxes/{medicine_box}/members', [MedicineBoxMemberController::class, 'store'])->middleware('throttle:6,1');
     Route::delete('/medicine-boxes/{medicine_box}/members/{user_id}', [MedicineBoxMemberController::class, 'destroy']);
 
     // 5. Аптечки (MedicineBoxPolicy: owner, editor, viewer)

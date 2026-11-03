@@ -133,10 +133,10 @@ class MedicineBoxSharingTest extends TestCase
 
     /**
      * Защита от перечисления пользователей (DEF-12, OWASP / 152-ФЗ):
-     * Приглашение несуществующего email не должно возвращать ошибку валидатора 422 (exists:users,email),
-     * а возвращает контролируемый 404 Not Found без раскрытия структуры БД.
+     * Приглашение несуществующего email возвращает унифицированный HTTP 200 OK
+     * с нейтральным сообщением для предотвращения оракула перебора аккаунтов.
      */
-    public function test_invite_non_existent_user_returns_404_not_found(): void
+    public function test_invite_non_existent_user_returns_200_neutral_message(): void
     {
         $response = $this->actingAs($this->owner)
             ->postJson("/api/medicine-boxes/{$this->box->id}/members", [
@@ -144,7 +144,31 @@ class MedicineBoxSharingTest extends TestCase
                 'role' => 'editor',
             ]);
 
-        $response->assertStatus(404)
-            ->assertJsonPath('message', 'Пользователь с указанным адресом электронной почты не найден.');
+        $response->assertStatus(200)
+            ->assertJsonPath('message', 'Если пользователь с указанным адресом зарегистрирован в системе, приглашение в аптечку отправлено.');
+    }
+
+    /**
+     * Защита от перебора: троттлинг запросов на добавление участников (DEF-12).
+     * Лимит: 6 запросов в минуту. 7-й запрос должен возвращать HTTP 429 Too Many Requests.
+     */
+    public function test_invite_member_is_rate_limited(): void
+    {
+        for ($i = 1; $i <= 6; $i++) {
+            $response = $this->actingAs($this->owner)
+                ->postJson("/api/medicine-boxes/{$this->box->id}/members", [
+                    'email' => "attempt_{$i}@family.test",
+                    'role' => 'editor',
+                ]);
+            $this->assertNotEquals(429, $response->status());
+        }
+
+        $response7 = $this->actingAs($this->owner)
+            ->postJson("/api/medicine-boxes/{$this->box->id}/members", [
+                'email' => 'attempt_7@family.test',
+                'role' => 'editor',
+            ]);
+
+        $response7->assertStatus(429);
     }
 }

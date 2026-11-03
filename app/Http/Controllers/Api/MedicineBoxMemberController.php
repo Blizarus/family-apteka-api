@@ -46,8 +46,8 @@ class MedicineBoxMemberController extends Controller
         $invitedUser = User::where('email', $validated['email'])->first();
         if (! $invitedUser) {
             return response()->json([
-                'message' => 'Пользователь с указанным адресом электронной почты не найден.',
-            ], 404);
+                'message' => 'Если пользователь с указанным адресом зарегистрирован в системе, приглашение в аптечку отправлено.',
+            ], 200);
         }
 
         // Проверка согласия 152-ФЗ на облачную синхронизацию данных для семейного шеринга

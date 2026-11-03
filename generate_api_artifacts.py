@@ -56,12 +56,16 @@ def build_openapi_spec():
         },
         "servers": [
             {
+                "url": "http://e340043kek.temp.swtest.ru/api",
+                "description": "Боевой стенд HTTP (SpaceWeb Remote Stand - Direct HTTP)"
+            },
+            {
                 "url": "https://e340043kek.temp.swtest.ru/api",
-                "description": "Удаленный рабочий сервер (SWTest Remote Production)"
+                "description": "Удаленный рабочий сервер HTTPS (SpaceWeb Remote Stand)"
             },
             {
                 "url": "http://127.0.0.1:8000/api",
-                "description": "Локальный сервер разработки (Local Development)"
+                "description": "Локальный сервер разработки (Local Development Artisan Serve)"
             }
         ],
         "tags": [
@@ -846,9 +850,10 @@ def build_openapi_spec():
             },
             "responses": {
                 "201": {"description": "Участник успешно добавлен", "content": {"application/json": {"schema": {"type": "object", "properties": {"message": {"type": "string"}, "data": {"type": "object"}}}}}},
-                "200": {"description": "Роль участника успешно обновлена", "content": {"application/json": {"schema": {"type": "object", "properties": {"message": {"type": "string"}, "data": {"type": "object"}}}}}},
+                "200": {"description": "Роль участника обновлена либо нейтральный ответ при отсутствии адреса (защита от перебора DEF-12)", "content": {"application/json": {"schema": {"type": "object", "properties": {"message": {"type": "string"}, "data": {"type": "object"}}}}}},
                 "403": {"description": "Запрещено политикой или отключена синхронизация 152-ФЗ", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
-                "422": {"description": "Ошибка валидации или пользователь является владельцем", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+                "422": {"description": "Ошибка валидации или пользователь является владельцем", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}},
+                "429": {"description": "Превышен лимит запросов (Rate Limiting: 6 попыток в минуту)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
             }
         }
     }

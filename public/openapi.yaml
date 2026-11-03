@@ -43,10 +43,12 @@ info:
     name: MIT License
     url: https://opensource.org/licenses/MIT
 servers:
+- url: http://e340043kek.temp.swtest.ru/api
+  description: Боевой стенд HTTP (SpaceWeb Remote Stand - Direct HTTP)
 - url: https://e340043kek.temp.swtest.ru/api
-  description: Удаленный рабочий сервер (SWTest Remote Production)
+  description: Удаленный рабочий сервер HTTPS (SpaceWeb Remote Stand)
 - url: http://127.0.0.1:8000/api
-  description: Локальный сервер разработки (Local Development)
+  description: Локальный сервер разработки (Local Development Artisan Serve)
 tags:
 - name: Auth
   description: Аутентификация, регистрация (152-ФЗ), профиль и управление жизненным
@@ -1424,7 +1426,8 @@ paths:
                   data:
                     type: object
         '200':
-          description: Роль участника успешно обновлена
+          description: Роль участника обновлена либо нейтральный ответ при отсутствии
+            адреса (защита от перебора DEF-12)
           content:
             application/json:
               schema:
@@ -1446,6 +1449,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidationErrorResponse'
+        '429':
+          description: 'Превышен лимит запросов (Rate Limiting: 6 попыток в минуту)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /medicine-boxes/{id}/members/{user_id}:
     delete:
       tags:
