@@ -19,8 +19,8 @@ class MedicationSafetyController extends Controller
     public function check(Request $request, MedicationSafetyService $safetyService): JsonResponse
     {
         $validated = $request->validate([
-            'profile_id' => ['required', 'integer', 'exists:profiles,id'],
-            'medicine_id' => ['nullable', 'required_without:reference_medicine_id', 'integer', 'exists:medicines,id'],
+            'profile_id' => ['required', 'integer'],
+            'medicine_id' => ['nullable', 'required_without:reference_medicine_id', 'integer'],
             'reference_medicine_id' => ['nullable', 'required_without:medicine_id', 'integer'],
         ]);
 

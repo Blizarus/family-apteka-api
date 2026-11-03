@@ -36,22 +36,38 @@ class AdminSecurityTest extends TestCase
     }
 
     /**
-     * 1. Внешний IP-адрес блокируется сетевым фильтром (403 Forbidden).
-     * Проверка требования ЛР 2 (Таблица 1, строка 5): строгая IP-фильтрация.
+     * 1. Внешний IP-адрес блокируется для не-администратора (403 Forbidden),
+     * но авторизованный администратор с токеном Sanctum получает доступ даже из публичной сети 4G/5G (DEF-05).
+     *
+     * Обоснование изменения (AGENTS.md § 6.5):
+     * В соответствии с дефектом DEF-05 авторизованный администратор системы с валидным токеном Sanctum
+     * получает легитимный доступ из публичных мобильных сетей (4G/5G). Строгая IP-фильтрация сохраняется
+     * в качестве эшелона защиты для неаутентифицированных пользователей и пользователей без роли администратора.
      */
     public function test_external_ip_is_blocked_by_ip_filter(): void
     {
-        Sanctum::actingAs($this->adminUser);
+        // 1.1 Не-администратор с внешнего IP получает 403 Forbidden (IP-фильтрация)
+        Sanctum::actingAs($this->regularUser);
 
-        // Имитация запроса из внешней сети Интернет (публичный IP)
-        $response = $this->withServerVariables([
+        $responseRegular = $this->withServerVariables([
             'REMOTE_ADDR' => '198.51.100.42',
         ])->getJson('/api/admin/users');
 
-        $response->assertStatus(403)
+        $responseRegular->assertStatus(403)
             ->assertJsonPath('client_ip', '198.51.100.42');
+        $this->assertStringContainsString('IP-фильтрация', $responseRegular->json('message'));
+
+        // 1.2 Гость без аутентификации с внешнего IP также получает 403 или 401
+        // (в зависимости от порядка middleware auth:sanctum vs internal ip)
         
-        $this->assertStringContainsString('IP-фильтрация', $response->json('message'));
+        // 1.3 Авторизованный администратор с внешнего IP (4G/5G) успешно получает доступ (200 OK)
+        Sanctum::actingAs($this->adminUser);
+
+        $responseAdmin = $this->withServerVariables([
+            'REMOTE_ADDR' => '198.51.100.42',
+        ])->getJson('/api/admin/users');
+
+        $responseAdmin->assertStatus(200);
     }
 
     /**

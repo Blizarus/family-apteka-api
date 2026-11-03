@@ -39,11 +39,16 @@ class MedicineBoxMemberController extends Controller
         Gate::authorize('invite', $medicineBox);
 
         $validated = $request->validate([
-            'email' => ['required', 'string', 'email', 'exists:users,email'],
+            'email' => ['required', 'string', 'email'],
             'role' => ['required', 'string', 'in:editor,viewer'],
         ]);
 
-        $invitedUser = User::where('email', $validated['email'])->firstOrFail();
+        $invitedUser = User::where('email', $validated['email'])->first();
+        if (! $invitedUser) {
+            return response()->json([
+                'message' => 'Пользователь с указанным адресом электронной почты не найден.',
+            ], 404);
+        }
 
         // Проверка согласия 152-ФЗ на облачную синхронизацию данных для семейного шеринга
         if (! $request->user()->sync_enabled || ! $invitedUser->sync_enabled) {

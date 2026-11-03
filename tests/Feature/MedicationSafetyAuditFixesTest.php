@@ -317,13 +317,19 @@ class MedicationSafetyAuditFixesTest extends TestCase
             'message' => 'Доступ к указанному профилю запрещен (IDOR protection).',
         ]);
 
-        // 2. Запрос к несуществующему профилю -> валидация схемы 422 Unprocessable Entity
+        // 2. Запрос к несуществующему профилю -> единый 403 Forbidden (DEF-12: ликвидация оракула перечисления профилей по 152-ФЗ)
+        // Обоснование изменения (AGENTS.md § 6.5):
+        // Ранее несуществующий профиль возвращал 422 через 'exists:profiles,id', а чужой — 403,
+        // что создавало уязвимость User/Profile Enumeration (CWE-209). В рамках DEF-12 возвращается
+        // единообразный 403 Forbidden для всех профилей, не принадлежащих текущему пользователю.
         $respNonExistent = $this->actingAs($this->user)->postJson('/api/medication-safety/check', [
             'profile_id' => 999999,
             'reference_medicine_id' => $refMed->id,
         ]);
 
-        $this->assertEquals(422, $respNonExistent->status());
-        $respNonExistent->assertJsonValidationErrors(['profile_id']);
+        $this->assertEquals(403, $respNonExistent->status());
+        $respNonExistent->assertJson([
+            'message' => 'Доступ к указанному профилю запрещен (IDOR protection).',
+        ]);
     }
 }

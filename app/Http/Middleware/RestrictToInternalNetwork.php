@@ -24,9 +24,15 @@ class RestrictToInternalNetwork
      */
     public function handle(Request $request, Closure $next): Response
     {
+        $user = $request->user();
         $clientIp = $request->ip();
 
-        // 1. Проверка IP-фильтрации (только внутренняя доверенная сеть)
+        // 1. Авторизованный администратор имеет доступ с любых IP, включая мобильные сети 4G/5G (DEF-05)
+        if ($user && $user->is_admin) {
+            return $next($request);
+        }
+
+        // 2. Для неаутентифицированных или обычных пользователей — строгая IP-фильтрация доверенной сети
         if (! $this->isInternalIp($clientIp)) {
             Log::warning("Попытка несанкционированного доступа к панели администрирования из внешней сети: IP {$clientIp}, URL: {$request->fullUrl()}");
 
@@ -36,18 +42,12 @@ class RestrictToInternalNetwork
             ], 403);
         }
 
-        // 2. Проверка аутентификации и роли администратора (RBAC)
-        $user = $request->user();
+        // 3. Запрос из внутренней сети без роли администратора
+        Log::warning("Попытка доступа к панели администрирования пользователем без роли администратора: User ID " . ($user?->id ?? 'guest'));
 
-        if (! $user || ! $user->is_admin) {
-            Log::warning("Попытка доступа к панели администрирования пользователем без роли администратора: User ID " . ($user?->id ?? 'guest'));
-
-            return response()->json([
-                'message' => 'Доступ запрещен: требуются права администратора системы.',
-            ], 403);
-        }
-
-        return $next($request);
+        return response()->json([
+            'message' => 'Доступ запрещен: требуются права администратора системы.',
+        ], 403);
     }
 
     /**

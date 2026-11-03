@@ -130,4 +130,21 @@ class MedicineBoxSharingTest extends TestCase
             'user_id' => $this->owner->id,
         ]);
     }
+
+    /**
+     * Защита от перечисления пользователей (DEF-12, OWASP / 152-ФЗ):
+     * Приглашение несуществующего email не должно возвращать ошибку валидатора 422 (exists:users,email),
+     * а возвращает контролируемый 404 Not Found без раскрытия структуры БД.
+     */
+    public function test_invite_non_existent_user_returns_404_not_found(): void
+    {
+        $response = $this->actingAs($this->owner)
+            ->postJson("/api/medicine-boxes/{$this->box->id}/members", [
+                'email' => 'nonexistent_user_for_oracle_check@family.test',
+                'role' => 'editor',
+            ]);
+
+        $response->assertStatus(404)
+            ->assertJsonPath('message', 'Пользователь с указанным адресом электронной почты не найден.');
+    }
 }

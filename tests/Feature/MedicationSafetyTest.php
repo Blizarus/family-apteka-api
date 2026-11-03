@@ -530,12 +530,15 @@ class MedicationSafetyTest extends TestCase
         ])->assertStatus(422)
           ->assertJsonValidationErrors(['profile_id']);
 
-        // 2. Несуществующий profile_id возвращает 422 Unprocessable Entity
+        // 2. Несуществующий profile_id возвращает 403 Forbidden (защита от IDOR и оракула перечисления сущностей по DEF-12)
+        // Обоснование изменения (AGENTS.md § 6.5):
+        // Ранее правило 'exists:profiles,id' в валидаторе возвращало 422 для несуществующих профилей и 403 для чужих,
+        // формируя оракул перебора идентификаторов (CWE-209). Теперь для чужих и несуществующих профилей возвращается единый 403.
         $this->postJson('/api/medication-safety/check', [
             'profile_id' => 999999,
             'reference_medicine_id' => $this->ibuprofen->id,
-        ])->assertStatus(422)
-          ->assertJsonValidationErrors(['profile_id']);
+        ])->assertStatus(403)
+          ->assertJsonPath('message', 'Доступ к указанному профилю запрещен (IDOR protection).');
 
         // 3. Отсутствие обоих идентификаторов лекарства (ни medicine_id, ни reference_medicine_id)
         $this->postJson('/api/medication-safety/check', [
