@@ -141,4 +141,63 @@ class MedicineValidationTest extends TestCase
             'reference_medicine_id' => $ref->id,
         ]);
     }
+
+    /**
+     * HOTFIX-15.1: Запрещено обновлять пользовательский препарат значением custom_trade_name = null.
+     */
+    public function test_cannot_update_custom_medicine_with_null_trade_name(): void
+    {
+        $medicine = Medicine::create([
+            'medicine_box_id' => $this->box->id,
+            'custom_trade_name' => 'Парацетамол Пользовательский',
+            'reference_medicine_id' => null,
+            'quantity' => 10,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+
+        $response = $this->actingAs($this->user)->putJson("/api/medicines/{$medicine->id}", [
+            'custom_trade_name' => null,
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['custom_trade_name']);
+    }
+
+    /**
+     * HOTFIX-15.1: Разрешено обновлять эталонный препарат из ГРЛС значением custom_trade_name = null.
+     */
+    public function test_can_update_reference_medicine_with_null_custom_name(): void
+    {
+        $ref = ReferenceMedicine::create([
+            'trade_name' => 'Ибупрофен 400мг',
+            'inn' => 'Ибупрофен',
+            'dosage_form' => 'таблетки',
+            'dosage' => '400 мг',
+            'pack_size' => 1,
+            'manufacturer' => 'Фармстандарт',
+            'country' => 'Россия',
+            'atc_code' => 'M01AE01',
+            'barcode' => '4601234567891',
+            'is_prescription' => false,
+            'status' => 'active',
+        ]);
+
+        $medicine = Medicine::create([
+            'medicine_box_id' => $this->box->id,
+            'reference_medicine_id' => $ref->id,
+            'custom_trade_name' => 'Мой Ибупрофен',
+            'quantity' => 10,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+
+        $response = $this->actingAs($this->user)->putJson("/api/medicines/{$medicine->id}", [
+            'custom_trade_name' => null,
+        ]);
+
+        $response->assertStatus(200);
+    }
 }

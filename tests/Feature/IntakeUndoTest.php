@@ -120,6 +120,11 @@ class IntakeUndoTest extends TestCase
         $this->assertEquals(IntakeLogStatus::SCHEDULED, $log->status);
         $this->assertNull($log->taken_time);
         $this->assertEquals(0.0, (float) $log->deducted_quantity);
+
+        $this->assertDatabaseHas('notification_logs', [
+            'user_id' => $this->user->id,
+            'type' => 'intake_undo',
+        ]);
     }
 
     /**

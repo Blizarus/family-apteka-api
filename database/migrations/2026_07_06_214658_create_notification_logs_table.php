@@ -23,6 +23,7 @@ return new class extends Migration
                 'opened_expired',
                 'low_stock',
                 'push_test',
+                'intake_undo',
             ]);
             $table->foreignId('user_id')->constrained()->cascadeOnDelete()->index();
             $table->timestamp('sent_at');

@@ -85,6 +85,15 @@ class MedicationSafetyService
             $warnings = array_merge($warnings, $contraindications);
         }
 
+        // 5. Проверка прямых межлекарственных взаимодействий (Drug-Drug Interactions, DDI)
+        $ddiResult = $this->checkDrugDrugInteractions($profile, $medicine, $inn, $atcCode, $tradeName);
+        if (! empty($ddiResult['warnings'])) {
+            $warnings = array_merge($warnings, $ddiResult['warnings']);
+        }
+        if ($ddiResult['has_critical']) {
+            $hasCritical = true;
+        }
+
         // Fail-closed проверка для коморбидного профиля: если есть хронические заболевания, но нет фармакологических данных
         if (! empty($chronicConditions) && empty($inn) && empty($atcCode) && empty(trim($composition)) && empty($allergenTags)) {
             $unverifiedChecks[] = "Невозможно проверить противопоказания по хроническим заболеваниям: у препарата «{$tradeName}» отсутствуют фармакологические данные (МНН, АТХ, состав).";
@@ -465,6 +474,125 @@ class MedicationSafetyService
         }
 
         return $medicine->referenceMedicine?->atc_code ?? '';
+    }
+
+    /**
+     * Проверка прямых межлекарственных взаимодействий (DDI) между назначаемым препаратом
+     * и активными курсами терапии пациента.
+     *
+     * @return array{warnings: array<int, string>, has_critical: bool}
+     */
+    protected function checkDrugDrugInteractions(
+        Profile $profile,
+        ReferenceMedicine|Medicine $targetMedicine,
+        string $targetInn,
+        string $targetAtc,
+        string $targetTradeName
+    ): array {
+        $warnings = [];
+        $hasCritical = false;
+
+        $targetInnClean = mb_strtolower(trim($targetInn));
+        $targetAtcClean = mb_strtoupper(trim($targetAtc));
+
+        if (empty($targetInnClean) && empty($targetAtcClean)) {
+            return ['warnings' => [], 'has_critical' => false];
+        }
+
+        $activeCourses = $profile->intakeCourses()
+            ->where('is_active', true)
+            ->where(function ($query) {
+                $query->whereNull('end_date')
+                    ->orWhere('end_date', '>=', now()->toDateString());
+            })
+            ->with(['medicine.referenceMedicine'])
+            ->get();
+
+        $targetMedicineId = $targetMedicine instanceof Medicine ? $targetMedicine->id : null;
+
+        foreach ($activeCourses as $course) {
+            $activeMed = $course->medicine;
+            if (! $activeMed) {
+                continue;
+            }
+
+            if ($targetMedicineId && $activeMed->id === $targetMedicineId) {
+                continue;
+            }
+
+            $activeTradeName = $this->resolveTradeName($activeMed);
+            $activeInn = mb_strtolower(trim($this->resolveInn($activeMed)));
+            $activeAtc = mb_strtoupper(trim($this->resolveAtcCode($activeMed)));
+
+            if (empty($activeInn) && empty($activeAtc)) {
+                continue;
+            }
+
+            $isNsaid = fn ($inn, $atc) => str_starts_with($atc, 'M01A')
+                || in_array($inn, ['ибупрофен', 'диклофенак', 'кеторолак', 'кетопрофен', 'мелоксикам', 'нимесулид', 'индометацин', 'целекоксиб', 'ацеклофенак', 'лорноксикам']);
+
+            $isAnticoagulant = fn ($inn, $atc) => str_starts_with($atc, 'B01')
+                || in_array($inn, ['варфарин', 'ривароксабан', 'апиксабан', 'дабигатран', 'клопидогрел', 'гепарин', 'эноксапарин']);
+
+            $isNitrate = fn ($inn, $atc) => str_starts_with($atc, 'C01DA')
+                || in_array($inn, ['нитроглицерин', 'изосорбида динитрат', 'изосорбида мононитрат']);
+
+            $isPde5 = fn ($inn, $atc) => str_starts_with($atc, 'G04BE')
+                || in_array($inn, ['силденафил', 'тадалафил', 'варденафил', 'уденафил']);
+
+            $isPotassiumSparing = fn ($inn, $atc) => str_starts_with($atc, 'C03DA') || str_starts_with($atc, 'C03D')
+                || in_array($inn, ['спиронолактон', 'эплеренон']);
+
+            $isPotassiumOrAce = fn ($inn, $atc) => str_starts_with($atc, 'A12BA') || str_starts_with($atc, 'C09A')
+                || in_array($inn, ['эналаприл', 'лизиноприл', 'периндоприл', 'рамиприл', 'каптоприл', 'калия хлорид', 'калия и магния аспарагинат']);
+
+            $isAceOrArb = fn ($inn, $atc) => str_starts_with($atc, 'C09A') || str_starts_with($atc, 'C09C')
+                || in_array($inn, ['эналаприл', 'лизиноприл', 'периндоприл', 'рамиприл', 'каптоприл', 'лозартан', 'валсартан', 'кандесартан', 'телмисартан']);
+
+            $isMacrolide = fn ($inn, $atc) => str_starts_with($atc, 'J01FA')
+                || in_array($inn, ['кларитромицин', 'эритромицин']);
+
+            $isStatin = fn ($inn, $atc) => str_starts_with($atc, 'C10AA')
+                || in_array($inn, ['аторвастатин', 'симвастатин', 'розувастатин', 'ловастатин', 'правастатин']);
+
+            // 1. НПВП + Антикоагулянты / Антиагреганты (Критический)
+            if (($isNsaid($targetInnClean, $targetAtcClean) && $isAnticoagulant($activeInn, $activeAtc)) ||
+                ($isAnticoagulant($targetInnClean, $targetAtcClean) && $isNsaid($activeInn, $activeAtc))) {
+                $hasCritical = true;
+                $warnings[] = "Критический конфликт DDI: совместный приём НПВП («{$targetTradeName}») и антикоагулянта/антиагреганта («{$activeTradeName}») резко потенцирует риск профузных желудочно-кишечных кровотечений.";
+            }
+
+            // 2. Нитраты + Ингибиторы ФДЭ-5 (Критический)
+            if (($isNitrate($targetInnClean, $targetAtcClean) && $isPde5($activeInn, $activeAtc)) ||
+                ($isPde5($targetInnClean, $targetAtcClean) && $isNitrate($activeInn, $activeAtc))) {
+                $hasCritical = true;
+                $warnings[] = "Критический конфликт DDI: совместный приём органических нитратов («{$targetTradeName}») и ингибиторов ФДЭ-5 («{$activeTradeName}») вызывает неконтролируемую вазодилатацию, сосудистый коллапс и угрожающую жизни артериальную гипотензию.";
+            }
+
+            // 3. Калийсберегающие диуретики + Препараты калия / иАПФ (Критический)
+            if (($isPotassiumSparing($targetInnClean, $targetAtcClean) && $isPotassiumOrAce($activeInn, $activeAtc)) ||
+                ($isPotassiumOrAce($targetInnClean, $targetAtcClean) && $isPotassiumSparing($activeInn, $activeAtc))) {
+                $hasCritical = true;
+                $warnings[] = "Критический конфликт DDI: сочетание калийсберегающих диуретиков («{$targetTradeName}») с препаратами калия или ингибиторами АПФ («{$activeTradeName}») несёт высокий риск тяжёлой гиперкалиемии и фатальных нарушений сердечного ритма.";
+            }
+
+            // 4. НПВП + Ингибиторы АПФ / БРА (Сартаны) (Предостережение)
+            if (($isNsaid($targetInnClean, $targetAtcClean) && $isAceOrArb($activeInn, $activeAtc)) ||
+                ($isAceOrArb($targetInnClean, $targetAtcClean) && $isNsaid($activeInn, $activeAtc))) {
+                $warnings[] = "Предостережение DDI: совместный приём НПВП («{$targetTradeName}») и ингибиторов АПФ/БРА («{$activeTradeName}») нивелирует антигипертензивный эффект и повышает риск нефротоксичности/острой почечной недостаточности.";
+            }
+
+            // 5. Макролиды + Статины (Предостережение)
+            if (($isMacrolide($targetInnClean, $targetAtcClean) && $isStatin($activeInn, $activeAtc)) ||
+                ($isStatin($targetInnClean, $targetAtcClean) && $isMacrolide($activeInn, $activeAtc))) {
+                $warnings[] = "Предостережение DDI: макролидные антибиотики («{$targetTradeName}») ингибируют метаболизм статинов («{$activeTradeName}») через CYP3A4, резко повышая риск миопатии и рабдомиолиза.";
+            }
+        }
+
+        return [
+            'warnings' => array_values(array_unique($warnings)),
+            'has_critical' => $hasCritical,
+        ];
     }
 
     /**

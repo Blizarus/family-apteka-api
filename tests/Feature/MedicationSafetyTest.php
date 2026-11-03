@@ -553,4 +553,230 @@ class MedicationSafetyTest extends TestCase
         ])->assertStatus(422)
           ->assertJsonValidationErrors(['profile_id', 'reference_medicine_id']);
     }
+
+    /**
+     * DEF-16: DDI - Критический конфликт между НПВП и антикоагулянтами (Варфарин + Ибупрофен).
+     */
+    public function test_ddi_detects_critical_nsaid_and_anticoagulant_interaction(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $warfarin = ReferenceMedicine::create([
+            'trade_name' => 'Варфарин Никомед',
+            'inn' => 'Варфарин',
+            'dosage_form' => 'таблетки',
+            'dosage' => '2.5 мг',
+            'pack_size' => 100,
+            'manufacturer' => 'Такеда',
+            'country' => 'Япония',
+            'atc_code' => 'B01AA03',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+        $warfarinMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => $warfarin->id,
+            'quantity' => 50,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+        IntakeCourse::create([
+            'profile_id' => $this->mishaProfile->id,
+            'medicine_id' => $warfarinMed->id,
+            'title' => 'Курс антикоагулянта',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => 'По 1 таб.',
+            'is_active' => true,
+        ]);
+
+        $response = $this->postJson('/api/medication-safety/check', [
+            'profile_id' => $this->mishaProfile->id,
+            'reference_medicine_id' => $this->ibuprofen->id,
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertFalse($response->json('data.is_safe'));
+        $this->assertTrue($response->json('data.has_critical'));
+        $this->assertEquals('conflict', $response->json('data.status'));
+        $warnings = implode(' ', $response->json('data.warnings'));
+        $this->assertStringContainsString('кровотечен', $warnings);
+    }
+
+    /**
+     * DEF-16: DDI - Критический конфликт между нитратами и ингибиторами ФДЭ-5 (Нитроглицерин + Силденафил).
+     */
+    public function test_ddi_detects_critical_nitrate_and_pde5_interaction(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $nitro = ReferenceMedicine::create([
+            'trade_name' => 'Нитроглицерин',
+            'inn' => 'Нитроглицерин',
+            'dosage_form' => 'таблетки подъязычные',
+            'dosage' => '0.5 мг',
+            'pack_size' => 40,
+            'manufacturer' => 'Фармстандарт',
+            'country' => 'Россия',
+            'atc_code' => 'C01DA02',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+        $nitroMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => $nitro->id,
+            'quantity' => 40,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+        IntakeCourse::create([
+            'profile_id' => $this->elenaProfile->id,
+            'medicine_id' => $nitroMed->id,
+            'title' => 'Курс нитратов',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => 'По 1 таб.',
+            'is_active' => true,
+        ]);
+
+        $sildenafil = ReferenceMedicine::create([
+            'trade_name' => 'Виагра',
+            'inn' => 'Силденафил',
+            'dosage_form' => 'таблетки',
+            'dosage' => '50 мг',
+            'pack_size' => 4,
+            'manufacturer' => 'Пфайзер',
+            'country' => 'США',
+            'atc_code' => 'G04BE03',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+
+        $response = $this->postJson('/api/medication-safety/check', [
+            'profile_id' => $this->elenaProfile->id,
+            'reference_medicine_id' => $sildenafil->id,
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertFalse($response->json('data.is_safe'));
+        $this->assertTrue($response->json('data.has_critical'));
+        $this->assertEquals('conflict', $response->json('data.status'));
+        $warnings = implode(' ', $response->json('data.warnings'));
+        $this->assertStringContainsString('коллапс', $warnings);
+    }
+
+    /**
+     * DEF-16: DDI - Предостережение при сочетании НПВП и ингибиторов АПФ (Эналаприл + Диклофенак).
+     */
+    public function test_ddi_detects_warning_for_nsaid_and_ace_inhibitor(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $enalapril = ReferenceMedicine::create([
+            'trade_name' => 'Энап',
+            'inn' => 'Эналаприл',
+            'dosage_form' => 'таблетки',
+            'dosage' => '10 мг',
+            'pack_size' => 20,
+            'manufacturer' => 'КРКА',
+            'country' => 'Словения',
+            'atc_code' => 'C09AA02',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+        $enalaprilMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => $enalapril->id,
+            'quantity' => 20,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+        IntakeCourse::create([
+            'profile_id' => $this->mishaProfile->id,
+            'medicine_id' => $enalaprilMed->id,
+            'title' => 'Курс от давления',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => 'По 1 таб.',
+            'is_active' => true,
+        ]);
+
+        $diclofenac = ReferenceMedicine::create([
+            'trade_name' => 'Вольтарен',
+            'inn' => 'Диклофенак',
+            'dosage_form' => 'таблетки',
+            'dosage' => '50 мг',
+            'pack_size' => 20,
+            'manufacturer' => 'Новартис',
+            'country' => 'Швейцария',
+            'atc_code' => 'M01AB05',
+            'is_prescription' => false,
+            'status' => 'active',
+        ]);
+
+        $response = $this->postJson('/api/medication-safety/check', [
+            'profile_id' => $this->mishaProfile->id,
+            'reference_medicine_id' => $diclofenac->id,
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertFalse($response->json('data.is_safe'));
+        $this->assertEquals('conflict', $response->json('data.status'));
+        $warnings = implode(' ', $response->json('data.warnings'));
+        $this->assertStringContainsString('нефротоксичн', $warnings);
+    }
+
+    /**
+     * DEF-16: DDI - Совместимые препараты не генерируют DDI-конфликтов.
+     */
+    public function test_ddi_passes_clean_for_compatible_drugs(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $paracetamol = ReferenceMedicine::create([
+            'trade_name' => 'Парацетамол',
+            'inn' => 'Парацетамол',
+            'dosage_form' => 'таблетки',
+            'dosage' => '500 мг',
+            'pack_size' => 10,
+            'manufacturer' => 'Фармстандарт',
+            'country' => 'Россия',
+            'atc_code' => 'N02BE01',
+            'is_prescription' => false,
+            'status' => 'active',
+        ]);
+        $paracetamolMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => $paracetamol->id,
+            'quantity' => 10,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+        IntakeCourse::create([
+            'profile_id' => $this->elenaProfile->id,
+            'medicine_id' => $paracetamolMed->id,
+            'title' => 'Обезболивающее',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => 'По 1 таб.',
+            'is_active' => true,
+        ]);
+
+        $response = $this->postJson('/api/medication-safety/check', [
+            'profile_id' => $this->elenaProfile->id,
+            'reference_medicine_id' => $this->amoxicillin->id,
+        ]);
+
+        $response->assertStatus(200);
+        $warnings = implode(' ', $response->json('data.warnings'));
+        $this->assertStringNotContainsString('DDI', $warnings);
+    }
 }

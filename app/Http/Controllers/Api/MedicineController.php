@@ -134,7 +134,15 @@ class MedicineController extends Controller
         Gate::authorize('update', $medicine->medicineBox);
 
         $validated = $request->validate([
-            'custom_trade_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'custom_trade_name' => [
+                'sometimes',
+                \Illuminate\Validation\Rule::requiredIf(fn () => empty($medicine->reference_medicine_id)),
+                'nullable',
+                'string',
+                'min:2',
+                'max:255',
+                'regex:/^[\pL\pN\s\-_.,()]+$/u',
+            ],
             'quantity' => ['sometimes', 'required', 'numeric', 'min:0'],
             'expiration_date' => ['sometimes', 'required', 'date'],
             'opened_at' => ['sometimes', 'nullable', 'date'],
@@ -143,6 +151,10 @@ class MedicineController extends Controller
             'storage_condition' => ['sometimes', 'nullable', new Enum(StorageCondition::class)],
             'status' => ['sometimes', 'required', new Enum(MedicineStatus::class)],
             'notes' => ['sometimes', 'nullable', 'string'],
+        ], [
+            'custom_trade_name.required' => 'Нельзя удалить наименование у пользовательского препарата, не привязанного к справочнику.',
+            'custom_trade_name.min' => 'Наименование препарата должно содержать не менее 2 символов.',
+            'custom_trade_name.regex' => 'Наименование препарата содержит недопустимые спецсимволы.',
         ]);
 
         $medicine->update($validated);

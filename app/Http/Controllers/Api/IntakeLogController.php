@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\IntakeLogStatus;
 use App\MedicineStatus;
+use App\NotificationLogType;
 use App\Models\IntakeCourse;
 use App\Models\IntakeLog;
 use App\Models\Medicine;
+use App\Models\NotificationLog;
 use App\Models\Profile;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -755,6 +757,18 @@ class IntakeLogController extends Controller
                 $intakeLog->taken_time = null;
                 $intakeLog->deducted_quantity = 0.000;
                 $intakeLog->save();
+
+                NotificationLog::create([
+                    'user_id' => $user->id,
+                    'entity_type' => IntakeLog::class,
+                    'entity_id' => $intakeLog->id,
+                    'title' => 'Отмена приёма лекарства',
+                    'message' => "Приём препарата #{$intakeLog->id} отменён. На остаток возвращено {$refundedQuantity} ед.",
+                    'type' => NotificationLogType::INTAKE_UNDO,
+                    'channel' => 'system',
+                    'status' => 'sent',
+                    'sent_at' => now(),
+                ]);
 
                 \Illuminate\Support\Facades\Log::info("IntakeLog #{$id} status TAKEN undone by user #{$user->id}. Restored {$refundedQuantity} units.");
             } elseif ($intakeLog->status === IntakeLogStatus::SKIPPED || $intakeLog->status === IntakeLogStatus::MISSED) {
