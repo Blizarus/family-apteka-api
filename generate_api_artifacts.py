@@ -3022,13 +3022,13 @@ def main():
 
     # Сохранение public/openapi.json
     json_path = os.path.join(PUBLIC_DIR, 'openapi.json')
-    with open(json_path, 'w', encoding='utf-8') as f:
+    with open(json_path, 'w', encoding='utf-8', newline='\n') as f:
         json.dump(openapi_spec, f, ensure_ascii=False, indent=2)
     print(f"  -> Создан: {json_path}")
 
     # Сохранение public/openapi.yaml
     yaml_path = os.path.join(PUBLIC_DIR, 'openapi.yaml')
-    with open(yaml_path, 'w', encoding='utf-8') as f:
+    with open(yaml_path, 'w', encoding='utf-8', newline='\n') as f:
         yaml.dump(openapi_spec, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
     print(f"  -> Создан: {yaml_path}")
 
@@ -3041,14 +3041,14 @@ def main():
         os.path.join(PUBLIC_DIR, 'FamilyApteka.postman_collection.json')
     ]
     for p in postman_paths:
-        with open(p, 'w', encoding='utf-8') as f:
+        with open(p, 'w', encoding='utf-8', newline='\n') as f:
             json.dump(postman_coll, f, ensure_ascii=False, indent=2)
         print(f"  -> Создан: {p}")
 
     print("[3/5] Генерация таблицы спецификации по ГОСТ 7.32...")
     gost_md = build_gost_markdown_table()
     gost_path = os.path.join(DOCS_GOST_DIR, 'API_СПЕЦИФИКАЦИЯ_ГОСТ.md')
-    with open(gost_path, 'w', encoding='utf-8') as f:
+    with open(gost_path, 'w', encoding='utf-8', newline='\n') as f:
         f.write(gost_md)
     print(f"  -> Создан: {gost_path}")
 
