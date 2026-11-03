@@ -43,7 +43,7 @@ info:
     name: MIT License
     url: https://opensource.org/licenses/MIT
 servers:
-- url: http://e340043kek.temp.swtest.ru/api
+- url: https://e340043kek.temp.swtest.ru/api
   description: Удаленный рабочий сервер (SWTest Remote Production)
 - url: http://127.0.0.1:8000/api
   description: Локальный сервер разработки (Local Development)
@@ -78,6 +78,9 @@ tags:
 - name: Reports
   description: 'Аналитические отчёты: комплаенс, приверженность лечению (Adherence),
     непрерывные серии (streak)'
+- name: Admin
+  description: Административный мониторинг, блокировка пользователей и управление
+    справочником ГРЛС
 components:
   securitySchemes:
     sanctumAuth:
@@ -846,6 +849,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidationErrorResponse'
+  /auth/export:
+    get:
+      tags:
+      - Auth
+      summary: Выгрузка персональных данных субъекта (152-ФЗ РФ)
+      description: Реализует требования ст. 14 152-ФЗ РФ «Право субъекта персональных
+        данных на доступ к его персональным данным». Возвращает структурированный
+        JSON с профилями, аптечками, препаратами, логами приёмов и историей согласий.
+      security:
+      - sanctumAuth: []
+      responses:
+        '200':
+          description: Полный архив персональных данных субъекта 152-ФЗ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  meta:
+                    type: object
+                  user:
+                    $ref: '#/components/schemas/User'
+                  profiles:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Profile'
+                  boxes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MedicineBox'
+                  notifications:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NotificationLog'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /dashboard:
     get:
       tags:
@@ -1834,6 +1877,74 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ValidationErrorResponse'
+  /medicines/{id}/move:
+    post:
+      tags:
+      - Medicines
+      summary: Перемещение лекарства в другую семейную аптечку
+      description: Переносит физическую упаковку препарата в указанную целевую аптечку.
+        Требует прав на редактирование (`update`) как исходной, так и целевой аптечки.
+      security:
+      - sanctumAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        example: 5
+        description: Идентификатор перемещаемого препарата
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - target_box_id
+              properties:
+                target_box_id:
+                  type: integer
+                  example: 2
+                  description: Идентификатор целевой аптечки
+      responses:
+        '200':
+          description: Препарат успешно перемещён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Препарат успешно перемещён из аптечки «Домашняя» в «Автомобильная».
+                  data:
+                    $ref: '#/components/schemas/Medicine'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'IDOR / Forbidden: Недостаточно прав на исходную или целевую
+            аптечку'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Препарат или целевая аптечка не найдены
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Ошибка валидации параметров
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
   /reference-medicines:
     get:
       tags:
@@ -2086,6 +2197,79 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags:
+      - IntakeCourses
+      summary: Редактирование параметров курса приёма
+      description: 'Обновляет параметры курса (дозировку, правила, активность). При
+        досрочном завершении (`is_active: false`) автоматически отменяются и удаляются
+        будущие запланированные приёмы.'
+      security:
+      - sanctumAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        example: 3
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_active:
+                  type: boolean
+                  example: true
+                dosage_quantity:
+                  type: number
+                  format: float
+                  example: 1.0
+                rule:
+                  type: string
+                  example: после еды
+                notes:
+                  type: string
+                  example: Принимать строго после еды
+      responses:
+        '200':
+          description: Курс приёма успешно обновлен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Курс приёма успешно обновлен.
+                  data:
+                    $ref: '#/components/schemas/IntakeCourse'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'IDOR: Доступ запрещен'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Курс не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
     delete:
       tags:
       - IntakeCourses
@@ -2106,12 +2290,88 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '403':
           description: 'IDOR: Доступ запрещен'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /intake-courses/{id}/extend:
+    post:
+      tags:
+      - IntakeCourses
+      summary: Продление курса приёма лекарств
+      description: 'Продлевает активный курс приёма: генерирует слоты расписания и
+        логи приёмов на 14 дней вперёд от даты последнего запланированного приёма.
+        Защищено политикой IntakeCoursePolicy (IDOR).'
+      security:
+      - sanctumAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        example: 1
+        description: Идентификатор курса приёма
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                days:
+                  type: integer
+                  default: 14
+                  example: 14
+                  description: Количество дней продления курса
+      responses:
+        '200':
+          description: Курс успешно продлён, сгенерированы новые логи
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Курс приёма успешно продлён.
+                  data:
+                    $ref: '#/components/schemas/IntakeCourse'
+                  logs_created_count:
+                    type: integer
+                    example: 14
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'IDOR: Доступ запрещен'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Курс приёма не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Нельзя продлить завершенный курс приёма
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
   /intake-logs:
     get:
       tags:
@@ -2186,8 +2446,19 @@ paths:
       description: Фиксирует разовый симптоматический приём лекарства («по требованию»),
         автоматически создает или находит PRN-курс, создает запись в журнале со статусом
         taken и атомарно списывает дозу из физического остатка препарата в аптечке.
+        Защищено от IDOR и дублирования запросов (Idempotency).
       security:
       - sanctumAuth: []
+      parameters:
+      - &id001
+        name: X-Idempotency-Key
+        in: header
+        required: false
+        description: Уникальный клиентский ключ идемпотентности (UUIDv4) для защиты
+          от повторного списания остатка при сетевых дублях
+        schema:
+          type: string
+          format: uuid
       requestBody:
         required: true
         content:
@@ -2247,8 +2518,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '409': &id002
+          description: Конфликт идемпотентности — операция с данным ключом уже обрабатывается
+            или завершена с другим результатом.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '422':
-          description: Ошибка валидации входных параметров
+          description: Ошибка валидации входных параметров или несовпадение контрольного
+            хеша idempotency
           content:
             application/json:
               schema:
@@ -2290,7 +2569,8 @@ paths:
       summary: Отметка о приёме лекарства (Take) и списание остатка
       description: В атомарной транзакции статус лога переводится в `taken`, фиксируется
         `taken_time`, а из физического остатка препарата (`medicines.quantity`) вычитается
-        доза. При обнулении остатка статус меняется на `finished`.
+        доза. При обнулении остатка статус меняется на `finished`. Защищено заголовком
+        идемпотентности X-Idempotency-Key.
       security:
       - sanctumAuth: []
       parameters:
@@ -2300,6 +2580,7 @@ paths:
         schema:
           type: integer
         example: 42
+      - *id001
       responses:
         '200':
           description: Приём зафиксирован, остаток списан
@@ -2323,6 +2604,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '409': *id002
+        '422':
+          description: Ошибка валидации или несоответствие idempotency_key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
   /intake-logs/{id}/skip:
     post:
       tags:
@@ -2330,6 +2618,7 @@ paths:
       summary: Пропуск приёма лекарства с фиксацией причины
       description: Статус переводится в `skipped`, сохраняется указанная причина пропуска
         (например, плохое самочувствие). Остаток препарата в аптечке не списывается.
+        Защищено заголовком идемпотентности X-Idempotency-Key.
       security:
       - sanctumAuth: []
       parameters:
@@ -2339,6 +2628,7 @@ paths:
         schema:
           type: integer
         example: 42
+      - *id001
       requestBody:
         required: false
         content:
@@ -2368,13 +2658,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '409': *id002
+        '422':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
   /intake-logs/{id}/snooze:
     post:
       tags:
       - IntakeLogs
       summary: Откладывание приёма лекарства на +N минут (Snooze)
       description: Сдвигает `scheduled_time` на указанное количество минут (по умолчанию
-        +15 мин, от 5 до 120 мин) для напоминания в мобильном приложении.
+        +15 мин, от 5 до 120 мин) для напоминания в мобильном приложении. Защищено
+        заголовком идемпотентности X-Idempotency-Key.
       security:
       - sanctumAuth: []
       parameters:
@@ -2384,6 +2682,7 @@ paths:
         schema:
           type: integer
         example: 42
+      - *id001
       requestBody:
         required: false
         content:
@@ -2416,6 +2715,76 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '409': *id002
+        '422':
+          description: Ошибка валидации
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+  /intake-logs/{id}/undo:
+    post:
+      tags:
+      - IntakeLogs
+      summary: Отмена отметки приёма с возвратом списанного остатка
+      description: Откатывает статус приёма назад в `scheduled`. В атомарной транзакции
+        возвращает ранее списанную дозу препарата в физический остаток упаковки (`medicines.quantity`).
+        Обладает свойством идемпотентности.
+      security:
+      - sanctumAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        example: 42
+      responses:
+        '200':
+          description: Отметка приёма успешно отменена, остаток возвращен в аптечку
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Отметка приёма успешно отменена. Остаток возвращен в
+                      аптечку.
+                  data:
+                    $ref: '#/components/schemas/IntakeLog'
+                  remaining_quantity:
+                    type: number
+                    format: float
+                    example: 20.0
+                  refunded_quantity:
+                    type: number
+                    format: float
+                    example: 1.0
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: 'IDOR: Доступ запрещен'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Запись о приёме не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Невозможно отменить неподтвержденный приём
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
   /medication-safety/check:
     post:
       tags:
@@ -2525,6 +2894,114 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /notifications/fcm-token:
+    post:
+      tags:
+      - Notifications
+      summary: Регистрация push-токена Firebase Cloud Messaging (FCM)
+      description: Привязывает push-токен мобильного клиента к учетной записи пользователя
+        для доставки push-уведомлений о приёмах и сроках годности лекарств.
+      security:
+      - sanctumAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - fcm_token
+              properties:
+                fcm_token:
+                  type: string
+                  maxLength: 255
+                  example: eK3...fcm_token_here
+                platform:
+                  type: string
+                  enum:
+                  - ios
+                  - android
+                  - web
+                  - flutter
+                  default: flutter
+                  example: flutter
+      responses:
+        '200':
+          description: FCM токен успешно сохранен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: FCM token registered successfully
+                  fcm_token:
+                    type: string
+                  platform:
+                    type: string
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Ошибка валидации входных данных
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+  /notifications/test-push:
+    post:
+      tags:
+      - Notifications
+      summary: Отправка тестового push-уведомления
+      description: Генерирует тестовое push-уведомление для проверки канала доставки
+        на мобильное устройство.
+      security:
+      - sanctumAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  maxLength: 255
+                  example: Тестовое уведомление
+                body:
+                  type: string
+                  maxLength: 1000
+                  example: Проверка push-уведомлений системы «Семейная аптечка».
+      responses:
+        '200':
+          description: Тестовое push-уведомление отправлено
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Test push notification queued/sent
+                  dispatched:
+                    type: boolean
+                    example: true
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Ошибка валидации параметров
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
   /reports/adherence:
     get:
       tags:
@@ -2642,6 +3119,373 @@ paths:
                           example: 85.7
         '403':
           description: 'IDOR: Доступ запрещен'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/users:
+    get:
+      tags:
+      - Admin
+      summary: Реестр пользователей системы и статусов блокировки
+      description: Пагинированный список пользователей системы. Защищено RBAC (роль
+        `is_admin`) и строгой IP-фильтрацией `RestrictToInternalNetwork` (только доверенная
+        сеть).
+      security:
+      - sanctumAuth: []
+      parameters:
+      - name: search
+        in: query
+        required: false
+        schema:
+          type: string
+        description: Поисковый запрос по email
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          default: 1
+      responses:
+        '200':
+          description: Пагинированный список пользователей
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  current_page:
+                    type: integer
+                    example: 1
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+                  total:
+                    type: integer
+                    example: 15
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Доступ запрещен (не администратор или внешний IP)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/users/{id}/block:
+    post:
+      tags:
+      - Admin
+      summary: Блокировка / разблокировка учетной записи пользователя
+      description: Блокирует или разблокирует пользователя. При блокировке немедленно
+        отзываются все активные Sanctum-токены. Запрещена блокировка собственной учетной
+        записи администратора. Защищено IP-фильтрацией и RBAC.
+      security:
+      - sanctumAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        example: 2
+        description: ID блокируемого пользователя
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                block:
+                  type: boolean
+                  example: true
+                  description: Флаг блокировки (true - заблокировать, false - разблокировать)
+      responses:
+        '200':
+          description: Статус блокировки успешно изменён
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Пользователь успешно заблокирован. Все активные сессии
+                      аннулированы.
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Доступ запрещен (не администратор или внешний IP)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Пользователь не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Попытка блокировки собственной учетной записи администратора
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+  /admin/reference-medicines:
+    post:
+      tags:
+      - Admin
+      summary: Создание эталонного препарата в каталоге ГРЛС
+      description: Добавляет новый препарат в центральный реестр лекарственных средств.
+        Защищено ролью администратора и IP-фильтрацией.
+      security:
+      - sanctumAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - trade_name
+              - inn
+              - dosage_form
+              - dosage
+              - pack_size
+              - manufacturer
+              - country
+              - barcode
+              properties:
+                trade_name:
+                  type: string
+                  maxLength: 255
+                  example: Ибупрофен-Форте
+                inn:
+                  type: string
+                  maxLength: 255
+                  example: Ибупрофен
+                dosage_form:
+                  type: string
+                  maxLength: 100
+                  example: таблетки покрытые оболочкой
+                dosage:
+                  type: string
+                  maxLength: 100
+                  example: 400 мг
+                pack_size:
+                  type: integer
+                  minimum: 1
+                  example: 20
+                manufacturer:
+                  type: string
+                  maxLength: 255
+                  example: Фармстандарт-Лексредства ОАО
+                country:
+                  type: string
+                  maxLength: 100
+                  example: Россия
+                barcode:
+                  type: string
+                  maxLength: 50
+                  example: '4601234567890'
+                atc_code:
+                  type: string
+                  maxLength: 20
+                  example: M01AE01
+                is_prescription:
+                  type: boolean
+                  default: false
+                  example: false
+                allergen_tags:
+                  type: array
+                  items:
+                    type: string
+                  example:
+                  - НПВП
+      responses:
+        '201':
+          description: Эталонный препарат успешно добавлен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Препарат успешно добавлен в справочник.
+                  data:
+                    $ref: '#/components/schemas/ReferenceMedicine'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Доступ запрещен (не администратор или внешний IP)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Ошибка валидации входных данных (например, дубликат штрихкода)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+  /admin/reference-medicines/{id}:
+    put:
+      tags:
+      - Admin
+      summary: Обновление эталонного препарата в каталоге ГРЛС
+      description: Редактирует поля препарата в справочнике. Защищено ролью администратора
+        и IP-фильтрацией.
+      security:
+      - sanctumAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        example: 1
+        description: ID эталонного препарата
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trade_name:
+                  type: string
+                  maxLength: 255
+                  example: Ибупрофен-Форте
+                inn:
+                  type: string
+                  maxLength: 255
+                  example: Ибупрофен
+                dosage_form:
+                  type: string
+                  maxLength: 100
+                  example: таблетки покрытые оболочкой
+                dosage:
+                  type: string
+                  maxLength: 100
+                  example: 400 мг
+                pack_size:
+                  type: integer
+                  minimum: 1
+                  example: 30
+                manufacturer:
+                  type: string
+                  maxLength: 255
+                  example: Фармстандарт ОАО
+                country:
+                  type: string
+                  maxLength: 100
+                  example: Россия
+                barcode:
+                  type: string
+                  maxLength: 50
+                  example: '4601234567890'
+                atc_code:
+                  type: string
+                  maxLength: 20
+                  example: M01AE01
+                is_prescription:
+                  type: boolean
+                  example: false
+      responses:
+        '200':
+          description: Препарат успешно обновлен
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Препарат успешно обновлен в справочнике.
+                  data:
+                    $ref: '#/components/schemas/ReferenceMedicine'
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Доступ запрещен (не администратор или внешний IP)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Препарат не найден в каталоге
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Ошибка валидации данных
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+    delete:
+      tags:
+      - Admin
+      summary: Удаление эталонного препарата из каталога ГРЛС
+      description: Удаляет препарат из справочника с аудитом в журнале `Log::info`.
+        Защищено ролью администратора и IP-фильтрацией.
+      security:
+      - sanctumAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+        example: 1
+        description: ID эталонного препарата
+      responses:
+        '200':
+          description: Препарат успешно удален из справочника
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Препарат 'Ибупрофен' успешно удален из справочника.
+        '401':
+          description: Не авторизован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Доступ запрещен (не администратор или внешний IP)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Препарат не найден в каталоге
           content:
             application/json:
               schema:

@@ -2,13 +2,13 @@
   "info": {
     "_postman_id": "a9e6d8b2-5f34-4b8c-9e21-d1f8a7c64210",
     "name": "Семейная Аптечка — REST API (Sanctum, Argon2id, AES-256)",
-    "description": "Интерактивная коллекция Postman v2.1.0 для тестирования и демонстрации REST API защищенной системы «Семейная аптечка».\n\nСервер по умолчанию: {{baseUrl}} (удаленный: http://e340043kek.temp.swtest.ru/api или локальный: http://127.0.0.1:8000/api).\nАвторизация: Выполните запрос в папке `01. Auth / Login (Авторизация)` — токен Sanctum автоматически запишется в переменную коллекции `{{token}}`.",
+    "description": "Интерактивная коллекция Postman v2.1.0 для тестирования и демонстрации REST API защищенной системы «Семейная аптечка».\n\nСервер по умолчанию: {{baseUrl}} (удаленный: https://e340043kek.temp.swtest.ru/api или локальный: http://127.0.0.1:8000/api).\nАвторизация: Выполните запрос в папке `01. Auth / Login (Авторизация)` — токен Sanctum автоматически запишется в переменную коллекции `{{token}}`.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://e340043kek.temp.swtest.ru/api",
+      "value": "https://e340043kek.temp.swtest.ru/api",
       "type": "string"
     },
     {

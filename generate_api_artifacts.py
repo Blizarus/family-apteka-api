@@ -56,7 +56,7 @@ def build_openapi_spec():
         },
         "servers": [
             {
-                "url": "http://e340043kek.temp.swtest.ru/api",
+                "url": "https://e340043kek.temp.swtest.ru/api",
                 "description": "Удаленный рабочий сервер (SWTest Remote Production)"
             },
             {
@@ -76,7 +76,8 @@ def build_openapi_spec():
             {"name": "IntakeLogs", "description": "Журнал приёмов лекарств: отметка о приёме (списание остатка), пропуск, перенос (snooze)"},
             {"name": "MedicationSafety", "description": "Клинический аудит безопасности медикаментозного назначения (CDS)"},
             {"name": "Notifications", "description": "Системные уведомления о сроках годности и минимальных остатках"},
-            {"name": "Reports", "description": "Аналитические отчёты: комплаенс, приверженность лечению (Adherence), непрерывные серии (streak)"}
+            {"name": "Reports", "description": "Аналитические отчёты: комплаенс, приверженность лечению (Adherence), непрерывные серии (streak)"},
+            {"name": "Admin", "description": "Административный мониторинг, блокировка пользователей и управление справочником ГРЛС"}
         ],
         "components": {
             "securitySchemes": {
@@ -337,6 +338,18 @@ def build_openapi_spec():
 
     p = spec["paths"]
 
+    idempotency_param = {
+        "name": "X-Idempotency-Key",
+        "in": "header",
+        "required": False,
+        "description": "Уникальный клиентский ключ идемпотентности (UUIDv4) для защиты от повторного списания остатка при сетевых дублях",
+        "schema": {"type": "string", "format": "uuid"}
+    }
+    idempotency_409 = {
+        "description": "Конфликт идемпотентности — операция с данным ключом уже обрабатывается или завершена с другим результатом.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}
+    }
+
     # =========================================================================
     # 1. AUTH
     # =========================================================================
@@ -510,6 +523,36 @@ def build_openapi_spec():
             "responses": {
                 "200": {"description": "Аккаунт и ПДн успешно удалены", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
                 "422": {"description": "Неверный пароль", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+            }
+        }
+    }
+
+
+    p["/auth/export"] = {
+        "get": {
+            "tags": ["Auth"],
+            "summary": "Выгрузка персональных данных субъекта (152-ФЗ РФ)",
+            "description": "Реализует требования ст. 14 152-ФЗ РФ «Право субъекта персональных данных на доступ к его персональным данным». Возвращает структурированный JSON с профилями, аптечками, препаратами, логами приёмов и историей согласий.",
+            "security": [{"sanctumAuth": []}],
+            "responses": {
+                "200": {
+                    "description": "Полный архив персональных данных субъекта 152-ФЗ",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "meta": {"type": "object"},
+                                    "user": {"$ref": "#/components/schemas/User"},
+                                    "profiles": {"type": "array", "items": {"$ref": "#/components/schemas/Profile"}},
+                                    "boxes": {"type": "array", "items": {"$ref": "#/components/schemas/MedicineBox"}},
+                                    "notifications": {"type": "array", "items": {"$ref": "#/components/schemas/NotificationLog"}}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
             }
         }
     }
@@ -1009,6 +1052,53 @@ def build_openapi_spec():
         }
     }
 
+
+    p["/medicines/{id}/move"] = {
+        "post": {
+            "tags": ["Medicines"],
+            "summary": "Перемещение лекарства в другую семейную аптечку",
+            "description": "Переносит физическую упаковку препарата в указанную целевую аптечку. Требует прав на редактирование (`update`) как исходной, так и целевой аптечки.",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 5, "description": "Идентификатор перемещаемого препарата"}
+            ],
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["target_box_id"],
+                            "properties": {
+                                "target_box_id": {"type": "integer", "example": 2, "description": "Идентификатор целевой аптечки"}
+                            }
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "Препарат успешно перемещён",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Препарат успешно перемещён из аптечки «Домашняя» в «Автомобильная»."},
+                                    "data": {"$ref": "#/components/schemas/Medicine"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "403": {"description": "IDOR / Forbidden: Недостаточно прав на исходную или целевую аптечку", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "404": {"description": "Препарат или целевая аптечка не найдены", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Ошибка валидации параметров", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+            }
+        }
+    }
+
     # =========================================================================
     # 7. REFERENCE MEDICINES
     # =========================================================================
@@ -1159,6 +1249,51 @@ def build_openapi_spec():
                 "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
             }
         },
+        "put": {
+            "tags": ["IntakeCourses"],
+            "summary": "Редактирование параметров курса приёма",
+            "description": "Обновляет параметры курса (дозировку, правила, активность). При досрочном завершении (`is_active: false`) автоматически отменяются и удаляются будущие запланированные приёмы.",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 3}
+            ],
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "is_active": {"type": "boolean", "example": True},
+                                "dosage_quantity": {"type": "number", "format": "float", "example": 1.0},
+                                "rule": {"type": "string", "example": "после еды"},
+                                "notes": {"type": "string", "example": "Принимать строго после еды"}
+                            }
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "Курс приёма успешно обновлен",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Курс приёма успешно обновлен."},
+                                    "data": {"$ref": "#/components/schemas/IntakeCourse"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "404": {"description": "Курс не найден", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Ошибка валидации", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+            }
+        },
         "delete": {
             "tags": ["IntakeCourses"],
             "summary": "Удаление / завершение курса приёма",
@@ -1168,7 +1303,54 @@ def build_openapi_spec():
             ],
             "responses": {
                 "200": {"description": "Курс приёма успешно удален", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
                 "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+            }
+        }
+    }
+
+    p["/intake-courses/{id}/extend"] = {
+        "post": {
+            "tags": ["IntakeCourses"],
+            "summary": "Продление курса приёма лекарств",
+            "description": "Продлевает активный курс приёма: генерирует слоты расписания и логи приёмов на 14 дней вперёд от даты последнего запланированного приёма. Защищено политикой IntakeCoursePolicy (IDOR).",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 1, "description": "Идентификатор курса приёма"}
+            ],
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "days": {"type": "integer", "default": 14, "example": 14, "description": "Количество дней продления курса"}
+                            }
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "Курс успешно продлён, сгенерированы новые логи",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Курс приёма успешно продлён."},
+                                    "data": {"$ref": "#/components/schemas/IntakeCourse"},
+                                    "logs_created_count": {"type": "integer", "example": 14}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "404": {"description": "Курс приёма не найден", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Нельзя продлить завершенный курс приёма", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
             }
         }
     }
@@ -1213,8 +1395,9 @@ def build_openapi_spec():
         "post": {
             "tags": ["IntakeLogs"],
             "summary": "Разовый приём по требованию (PRN / Quick Intake)",
-            "description": "Фиксирует разовый симптоматический приём лекарства («по требованию»), автоматически создает или находит PRN-курс, создает запись в журнале со статусом taken и атомарно списывает дозу из физического остатка препарата в аптечке.",
+            "description": "Фиксирует разовый симптоматический приём лекарства («по требованию»), автоматически создает или находит PRN-курс, создает запись в журнале со статусом taken и атомарно списывает дозу из физического остатка препарата в аптечке. Защищено от IDOR и дублирования запросов (Idempotency).",
             "security": [{"sanctumAuth": []}],
+            "parameters": [idempotency_param],
             "requestBody": {
                 "required": True,
                 "content": {
@@ -1250,7 +1433,8 @@ def build_openapi_spec():
                     }
                 },
                 "403": {"description": "IDOR: Профиль или аптечка не принадлежат пользователю", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
-                "422": {"description": "Ошибка валидации входных параметров", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+                "409": idempotency_409,
+                "422": {"description": "Ошибка валидации входных параметров или несовпадение контрольного хеша idempotency", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
             }
         }
     }
@@ -1274,10 +1458,11 @@ def build_openapi_spec():
         "post": {
             "tags": ["IntakeLogs"],
             "summary": "Отметка о приёме лекарства (Take) и списание остатка",
-            "description": "В атомарной транзакции статус лога переводится в `taken`, фиксируется `taken_time`, а из физического остатка препарата (`medicines.quantity`) вычитается доза. При обнулении остатка статус меняется на `finished`.",
+            "description": "В атомарной транзакции статус лога переводится в `taken`, фиксируется `taken_time`, а из физического остатка препарата (`medicines.quantity`) вычитается доза. При обнулении остатка статус меняется на `finished`. Защищено заголовком идемпотентности X-Idempotency-Key.",
             "security": [{"sanctumAuth": []}],
             "parameters": [
-                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 42}
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 42},
+                idempotency_param
             ],
             "responses": {
                 "200": {
@@ -1295,7 +1480,9 @@ def build_openapi_spec():
                         }
                     }
                 },
-                "403": {"description": "IDOR: Приём не относится к профилям пользователя", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+                "403": {"description": "IDOR: Приём не относится к профилям пользователя", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "409": idempotency_409,
+                "422": {"description": "Ошибка валидации или несоответствие idempotency_key", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
             }
         }
     }
@@ -1304,10 +1491,11 @@ def build_openapi_spec():
         "post": {
             "tags": ["IntakeLogs"],
             "summary": "Пропуск приёма лекарства с фиксацией причины",
-            "description": "Статус переводится в `skipped`, сохраняется указанная причина пропуска (например, плохое самочувствие). Остаток препарата в аптечке не списывается.",
+            "description": "Статус переводится в `skipped`, сохраняется указанная причина пропуска (например, плохое самочувствие). Остаток препарата в аптечке не списывается. Защищено заголовком идемпотентности X-Idempotency-Key.",
             "security": [{"sanctumAuth": []}],
             "parameters": [
-                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 42}
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 42},
+                idempotency_param
             ],
             "requestBody": {
                 "required": False,
@@ -1324,7 +1512,9 @@ def build_openapi_spec():
             },
             "responses": {
                 "200": {"description": "Приём отмечен как пропущенный", "content": {"application/json": {"schema": {"type": "object", "properties": {"message": {"type": "string"}, "data": {"$ref": "#/components/schemas/IntakeLog"}}}}}},
-                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "409": idempotency_409,
+                "422": {"description": "Ошибка валидации", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
             }
         }
     }
@@ -1333,10 +1523,11 @@ def build_openapi_spec():
         "post": {
             "tags": ["IntakeLogs"],
             "summary": "Откладывание приёма лекарства на +N минут (Snooze)",
-            "description": "Сдвигает `scheduled_time` на указанное количество минут (по умолчанию +15 мин, от 5 до 120 мин) для напоминания в мобильном приложении.",
+            "description": "Сдвигает `scheduled_time` на указанное количество минут (по умолчанию +15 мин, от 5 до 120 мин) для напоминания в мобильном приложении. Защищено заголовком идемпотентности X-Idempotency-Key.",
             "security": [{"sanctumAuth": []}],
             "parameters": [
-                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 42}
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 42},
+                idempotency_param
             ],
             "requestBody": {
                 "required": False,
@@ -1353,7 +1544,44 @@ def build_openapi_spec():
             },
             "responses": {
                 "200": {"description": "Время приёма сдвинуто", "content": {"application/json": {"schema": {"type": "object", "properties": {"message": {"type": "string", "example": "Приём лекарства успешно отложен на 15 мин."}, "data": {"$ref": "#/components/schemas/IntakeLog"}}}}}},
-                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "409": idempotency_409,
+                "422": {"description": "Ошибка валидации", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+            }
+        }
+    }
+
+
+    p["/intake-logs/{id}/undo"] = {
+        "post": {
+            "tags": ["IntakeLogs"],
+            "summary": "Отмена отметки приёма с возвратом списанного остатка",
+            "description": "Откатывает статус приёма назад в `scheduled`. В атомарной транзакции возвращает ранее списанную дозу препарата в физический остаток упаковки (`medicines.quantity`). Обладает свойством идемпотентности.",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 42}
+            ],
+            "responses": {
+                "200": {
+                    "description": "Отметка приёма успешно отменена, остаток возвращен в аптечку",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Отметка приёма успешно отменена. Остаток возвращен в аптечку."},
+                                    "data": {"$ref": "#/components/schemas/IntakeLog"},
+                                    "remaining_quantity": {"type": "number", "format": "float", "example": 20.0},
+                                    "refunded_quantity": {"type": "number", "format": "float", "example": 1.0}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "404": {"description": "Запись о приёме не найдена", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Невозможно отменить неподтвержденный приём", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
             }
         }
     }
@@ -1447,6 +1675,91 @@ def build_openapi_spec():
         }
     }
 
+
+    p["/notifications/fcm-token"] = {
+        "post": {
+            "tags": ["Notifications"],
+            "summary": "Регистрация push-токена Firebase Cloud Messaging (FCM)",
+            "description": "Привязывает push-токен мобильного клиента к учетной записи пользователя для доставки push-уведомлений о приёмах и сроках годности лекарств.",
+            "security": [{"sanctumAuth": []}],
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["fcm_token"],
+                            "properties": {
+                                "fcm_token": {"type": "string", "maxLength": 255, "example": "eK3...fcm_token_here"},
+                                "platform": {"type": "string", "enum": ["ios", "android", "web", "flutter"], "default": "flutter", "example": "flutter"}
+                            }
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "FCM токен успешно сохранен",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "FCM token registered successfully"},
+                                    "fcm_token": {"type": "string"},
+                                    "platform": {"type": "string"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Ошибка валидации входных данных", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+            }
+        }
+    }
+
+    p["/notifications/test-push"] = {
+        "post": {
+            "tags": ["Notifications"],
+            "summary": "Отправка тестового push-уведомления",
+            "description": "Генерирует тестовое push-уведомление для проверки канала доставки на мобильное устройство.",
+            "security": [{"sanctumAuth": []}],
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "title": {"type": "string", "maxLength": 255, "example": "Тестовое уведомление"},
+                                "body": {"type": "string", "maxLength": 1000, "example": "Проверка push-уведомлений системы «Семейная аптечка»."}
+                            }
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "Тестовое push-уведомление отправлено",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Test push notification queued/sent"},
+                                    "dispatched": {"type": "boolean", "example": True}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Ошибка валидации параметров", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+            }
+        }
+    }
+
     # =========================================================================
     # 12. REPORTS (ANALYTICS & ADHERENCE)
     # =========================================================================
@@ -1518,6 +1831,220 @@ def build_openapi_spec():
         }
     }
 
+
+    # =========================================================================
+    # 13. ADMIN (USERS & REFERENCE MEDICINES)
+    # =========================================================================
+    p["/admin/users"] = {
+        "get": {
+            "tags": ["Admin"],
+            "summary": "Реестр пользователей системы и статусов блокировки",
+            "description": "Пагинированный список пользователей системы. Защищено RBAC (роль `is_admin`) и строгой IP-фильтрацией `RestrictToInternalNetwork` (только доверенная сеть).",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "search", "in": "query", "required": False, "schema": {"type": "string"}, "description": "Поисковый запрос по email"},
+                {"name": "page", "in": "query", "required": False, "schema": {"type": "integer", "default": 1}}
+            ],
+            "responses": {
+                "200": {
+                    "description": "Пагинированный список пользователей",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "current_page": {"type": "integer", "example": 1},
+                                    "data": {"type": "array", "items": {"$ref": "#/components/schemas/User"}},
+                                    "total": {"type": "integer", "example": 15}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "403": {"description": "Доступ запрещен (не администратор или внешний IP)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+            }
+        }
+    }
+
+    p["/admin/users/{id}/block"] = {
+        "post": {
+            "tags": ["Admin"],
+            "summary": "Блокировка / разблокировка учетной записи пользователя",
+            "description": "Блокирует или разблокирует пользователя. При блокировке немедленно отзываются все активные Sanctum-токены. Запрещена блокировка собственной учетной записи администратора. Защищено IP-фильтрацией и RBAC.",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 2, "description": "ID блокируемого пользователя"}
+            ],
+            "requestBody": {
+                "required": False,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "block": {"type": "boolean", "example": True, "description": "Флаг блокировки (true - заблокировать, false - разблокировать)"}
+                            }
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "Статус блокировки успешно изменён",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Пользователь успешно заблокирован. Все активные сессии аннулированы."},
+                                    "user": {"$ref": "#/components/schemas/User"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "403": {"description": "Доступ запрещен (не администратор или внешний IP)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "404": {"description": "Пользователь не найден", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Попытка блокировки собственной учетной записи администратора", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+            }
+        }
+    }
+
+    p["/admin/reference-medicines"] = {
+        "post": {
+            "tags": ["Admin"],
+            "summary": "Создание эталонного препарата в каталоге ГРЛС",
+            "description": "Добавляет новый препарат в центральный реестр лекарственных средств. Защищено ролью администратора и IP-фильтрацией.",
+            "security": [{"sanctumAuth": []}],
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "required": ["trade_name", "inn", "dosage_form", "dosage", "pack_size", "manufacturer", "country", "barcode"],
+                            "properties": {
+                                "trade_name": {"type": "string", "maxLength": 255, "example": "Ибупрофен-Форте"},
+                                "inn": {"type": "string", "maxLength": 255, "example": "Ибупрофен"},
+                                "dosage_form": {"type": "string", "maxLength": 100, "example": "таблетки покрытые оболочкой"},
+                                "dosage": {"type": "string", "maxLength": 100, "example": "400 мг"},
+                                "pack_size": {"type": "integer", "minimum": 1, "example": 20},
+                                "manufacturer": {"type": "string", "maxLength": 255, "example": "Фармстандарт-Лексредства ОАО"},
+                                "country": {"type": "string", "maxLength": 100, "example": "Россия"},
+                                "barcode": {"type": "string", "maxLength": 50, "example": "4601234567890"},
+                                "atc_code": {"type": "string", "maxLength": 20, "example": "M01AE01"},
+                                "is_prescription": {"type": "boolean", "default": False, "example": False},
+                                "allergen_tags": {"type": "array", "items": {"type": "string"}, "example": ["НПВП"]}
+                            }
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "201": {
+                    "description": "Эталонный препарат успешно добавлен",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Препарат успешно добавлен в справочник."},
+                                    "data": {"$ref": "#/components/schemas/ReferenceMedicine"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "403": {"description": "Доступ запрещен (не администратор или внешний IP)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Ошибка валидации входных данных (например, дубликат штрихкода)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+            }
+        }
+    }
+
+    p["/admin/reference-medicines/{id}"] = {
+        "put": {
+            "tags": ["Admin"],
+            "summary": "Обновление эталонного препарата в каталоге ГРЛС",
+            "description": "Редактирует поля препарата в справочнике. Защищено ролью администратора и IP-фильтрацией.",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 1, "description": "ID эталонного препарата"}
+            ],
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "trade_name": {"type": "string", "maxLength": 255, "example": "Ибупрофен-Форте"},
+                                "inn": {"type": "string", "maxLength": 255, "example": "Ибупрофен"},
+                                "dosage_form": {"type": "string", "maxLength": 100, "example": "таблетки покрытые оболочкой"},
+                                "dosage": {"type": "string", "maxLength": 100, "example": "400 мг"},
+                                "pack_size": {"type": "integer", "minimum": 1, "example": 30},
+                                "manufacturer": {"type": "string", "maxLength": 255, "example": "Фармстандарт ОАО"},
+                                "country": {"type": "string", "maxLength": 100, "example": "Россия"},
+                                "barcode": {"type": "string", "maxLength": 50, "example": "4601234567890"},
+                                "atc_code": {"type": "string", "maxLength": 20, "example": "M01AE01"},
+                                "is_prescription": {"type": "boolean", "example": False}
+                            }
+                        }
+                    }
+                }
+            },
+            "responses": {
+                "200": {
+                    "description": "Препарат успешно обновлен",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Препарат успешно обновлен в справочнике."},
+                                    "data": {"$ref": "#/components/schemas/ReferenceMedicine"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "403": {"description": "Доступ запрещен (не администратор или внешний IP)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "404": {"description": "Препарат не найден в каталоге", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "422": {"description": "Ошибка валидации данных", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationErrorResponse"}}}}
+            }
+        },
+        "delete": {
+            "tags": ["Admin"],
+            "summary": "Удаление эталонного препарата из каталога ГРЛС",
+            "description": "Удаляет препарат из справочника с аудитом в журнале `Log::info`. Защищено ролью администратора и IP-фильтрацией.",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 1, "description": "ID эталонного препарата"}
+            ],
+            "responses": {
+                "200": {
+                    "description": "Препарат успешно удален из справочника",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Препарат 'Ибупрофен' успешно удален из справочника."}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "403": {"description": "Доступ запрещен (не администратор или внешний IP)", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "404": {"description": "Препарат не найден в каталоге", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+            }
+        }
+    }
+
     return spec
 
 
@@ -1532,7 +2059,7 @@ def build_postman_collection():
             "name": "Семейная Аптечка — REST API (Sanctum, Argon2id, AES-256)",
             "description": (
                 "Интерактивная коллекция Postman v2.1.0 для тестирования и демонстрации REST API защищенной системы «Семейная аптечка».\n\n"
-                "Сервер по умолчанию: {{baseUrl}} (удаленный: http://e340043kek.temp.swtest.ru/api или локальный: http://127.0.0.1:8000/api).\n"
+                "Сервер по умолчанию: {{baseUrl}} (удаленный: https://e340043kek.temp.swtest.ru/api или локальный: http://127.0.0.1:8000/api).\n"
                 "Авторизация: Выполните запрос в папке `01. Auth / Login (Авторизация)` — токен Sanctum автоматически запишется в переменную коллекции `{{token}}`."
             ),
             "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
@@ -1540,7 +2067,7 @@ def build_postman_collection():
         "variable": [
             {
                 "key": "baseUrl",
-                "value": "http://e340043kek.temp.swtest.ru/api",
+                "value": "https://e340043kek.temp.swtest.ru/api",
                 "type": "string"
             },
             {
@@ -2389,7 +2916,7 @@ def build_gost_markdown_table():
 > **Направление:** 09.04.04 Программная инженерия  
 > **Автор:** Маркова И. Б.  
 > **Научный руководитель:** канд. техн. наук, доц. С. А. Фирсова  
-> **Базовый URL:** `http://e340043kek.temp.swtest.ru/api` (Локальный: `http://127.0.0.1:8000/api`)  
+> **Базовый URL:** `https://e340043kek.temp.swtest.ru/api` (Локальный: `http://127.0.0.1:8000/api`)  
 > **Спецификация OpenAPI 3.1:** `/docs` (интерактивный просмотрщик Scalar), `/openapi.json`, `/openapi.yaml`
 
 ---
@@ -2407,6 +2934,7 @@ def build_gost_markdown_table():
 | 1.4 | `POST` | `/auth/logout` | Завершение сессии и аннулирование активного токена | `Bearer Sanctum`; Отзыв токена в БД Sanctum | `200 OK` (`Сессия успешно завершена`) |
 | 1.5 | `PUT` | `/auth/password` | Смена пароля учетной записи | `Bearer Sanctum`; Проверка текущего пароля Argon2id | `200 OK` / `422 Unprocessable` |
 | 1.6 | `DELETE` | `/auth/account` | Удаление аккаунта (Право на забвение 152-ФЗ) | `Bearer Sanctum`; Парольная аутентификация; Soft-Delete профилей, аптечек и пользователя | `200 OK` / `422 Unprocessable` |
+| 1.7 | `GET` | `/auth/export` | Выгрузка персональных данных субъекта 152-ФЗ | `Bearer Sanctum`; ст. 14 152-ФЗ РФ; Полный JSON-архив профилей, аптечек и логов | `200 OK` / `401 Unauthorized` |
 | **2. Модуль сводной аналитики и показателей безопасности** | | | | | |
 | 2.1 | `GET` | `/dashboard` | Агрегированные метрики аптечки и приёмов | `Bearer Sanctum`; Автоматическая фильтрация по аптечкам и профилям текущего пользователя | `200 OK` (JSON: total_medicines, expiring, expired, today_intakes) |
 | **3. Модуль профилей членов семьи, учета аллергенов и патологий** | | | | | |
@@ -2432,6 +2960,7 @@ def build_gost_markdown_table():
 | 6.4 | `PUT` | `/medicines/{id}` | Обновление остатков, статуса и даты вскрытия | `Bearer Sanctum`; Gate `update`; Модель FEFO-Opened | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
 | 6.5 | `DELETE` | `/medicines/{id}` | Списание / утилизация упаковки лекарства | `Bearer Sanctum`; Gate `update` | `200 OK` / `403 Forbidden` |
 | 6.6 | `POST` | `/medicines/{id}/open` | Фиксация вскрытия упаковки / флакона | `Bearer Sanctum`; Gate `update`; Модель FEFO-Opened (расчёт `effective_expiration_date`) | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
+| 6.7 | `POST` | `/medicines/{id}/move` | Перемещение лекарства в другую аптечку | `Bearer Sanctum`; Проверка прав `update` на обе аптечки | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
 | **7. Модуль открытого справочника ГРЛС / МНН** | | | | | |
 | 7.1 | `GET` | `/reference-medicines` | Поиск по справочнику медикаментов (ГРЛС) | Публичный доступ; Rate Limiter (`throttle:60,1`, защита от скрапинга) | `200 OK` (массив эталонных записей) / `429 Too Many Requests` |
 | 7.2 | `GET` | `/reference-medicines/{id}` | Полная карточка препарата из реестра | Публичный доступ; Rate Limiter (`throttle:60,1`) | `200 OK` / `404 Not Found` |
@@ -2439,7 +2968,9 @@ def build_gost_markdown_table():
 | 8.1 | `GET` | `/intake-courses` | Список назначенных курсов с пагинацией | `Bearer Sanctum`; Защита от IDOR по `profile_id` | `200 OK` (пагинация курсов) / `403 Forbidden` |
 | 8.2 | `POST` | `/intake-courses` | Назначение курса и генерация 14-дневных логов | `Bearer Sanctum`; Gate `create`; Аудит клинической безопасности (CDS); DB Transaction | `201 Created` (включая блок `safety` и `warnings`) |
 | 8.3 | `GET` | `/intake-courses/{id}` | Детали курса с расписанием и приёмами | `Bearer Sanctum`; Политика `IntakeCoursePolicy::view` | `200 OK` / `403 Forbidden` |
-| 8.4 | `DELETE` | `/intake-courses/{id}` | Завершение / отмена курса приёма | `Bearer Sanctum`; Политика `IntakeCoursePolicy::delete` | `200 OK` / `403 Forbidden` |
+| 8.4 | `PUT` | `/intake-courses/{id}` | Редактирование курса приёма | `Bearer Sanctum`; Политика `IntakeCoursePolicy::update`; Отмена будущих приёмов при `is_active=false` | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
+| 8.5 | `POST` | `/intake-courses/{id}/extend` | Продление курса приёма лекарств | `Bearer Sanctum`; Политика `IntakeCoursePolicy::update`; Генерация расписания логов на 14 дней | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
+| 8.6 | `DELETE` | `/intake-courses/{id}` | Завершение / отмена курса приёма | `Bearer Sanctum`; Политика `IntakeCoursePolicy::delete` | `200 OK` / `403 Forbidden` |
 | **9. Модуль фиксации приёмов и журнала соблюдения режима терапии** | | | | | |
 | 9.1 | `GET` | `/intake-logs` | Приёмы на дату (`date=today`) или история | `Bearer Sanctum`; Защита от IDOR; Пагинация истории по 50 записей | `200 OK` (JSON: date, data либо пагинатор) |
 | 9.2 | `GET` | `/intake-logs/{id}` | Просмотр отдельного события приёма | `Bearer Sanctum`; Проверка IDOR | `200 OK` / `403 Forbidden` |
@@ -2447,11 +2978,14 @@ def build_gost_markdown_table():
 | 9.4 | `POST` | `/intake-logs/{id}/take` | Фиксация приёма (Take) со списанием остатка | `Bearer Sanctum`; Атомарная DB Transaction; Декремент остатка упаковки в аптечке | `200 OK` (JSON: log, remaining_quantity) |
 | 9.5 | `POST` | `/intake-logs/{id}/skip` | Пропуск приёма с фиксацией причины | `Bearer Sanctum`; Проверка IDOR; Статус `skipped`, остаток не списывается | `200 OK` |
 | 9.6 | `POST` | `/intake-logs/{id}/snooze` | Откладывание приёма (+15 минут по умолчанию) | `Bearer Sanctum`; Проверка IDOR; Сдвиг `scheduled_time` | `200 OK` |
+| 9.7 | `POST` | `/intake-logs/{id}/undo` | Отмена отметки приёма с возвратом остатка | `Bearer Sanctum`; Проверка IDOR; Идемпотентность; Возврат списанной дозы в упаковку | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
 | **10. Модуль клинической безопасности и поддержки решений (CDS)** | | | | | |
 | 10.1 | `POST` | `/medication-safety/check` | Превентивная оценка риска назначения | `Bearer Sanctum`; Проверка IDOR; Детекция дублей МНН, аллергий и противопоказаний | `200 OK` (структурированный отчет `SafetyReport`) |
 | **11. Модуль системных уведомлений и оповещений о рисках** | | | | | |
 | 11.1 | `GET` | `/notifications` | Список системных уведомлений пользователя | `Bearer Sanctum`; Изоляция по `user_id` | `200 OK` (массив NotificationLog) |
 | 11.2 | `DELETE` | `/notifications/{id}` | Удаление прочитанного уведомления | `Bearer Sanctum`; Проверка IDOR (`user_id == auth()->id()`) | `200 OK` / `403 Forbidden` |
+| 11.3 | `POST` | `/notifications/fcm-token` | Регистрация токена Firebase Cloud Messaging (FCM) | `Bearer Sanctum`; Привязка push-токена устройства к аккаунту | `200 OK` / `422 Unprocessable` |
+| 11.4 | `POST` | `/notifications/test-push` | Отправка тестового push-уведомления | `Bearer Sanctum`; Проверка доставки push-сообщений | `200 OK` |
 | **12. Модуль аналитических отчётов комплаенса и приверженности лечению** | | | | | |
 | 12.1 | `GET` | `/reports/adherence` | Отчёт о приверженности лечению (комплаенс) | `Bearer Sanctum`; Защита от IDOR; Расчёт `adherence_rate`, `streak_days`, `daily_stats` | `200 OK` / `403 Forbidden` |
 | **13. Модуль администрирования, управления пользователями и IP-фильтрации (ЛР 2, Таблица 1, строка 5)** | | | | | |
@@ -2522,8 +3056,10 @@ def main():
     with open(json_path, 'r', encoding='utf-8') as f:
         loaded_json = json.load(f)
         assert loaded_json['openapi'] == '3.1.0'
-        assert len(loaded_json['paths']) >= 20
-        print(f"  -> OpenAPI JSON валиден! Эндпоинтов зарегистрировано: {len(loaded_json['paths'])}")
+        total_ops = sum(len(methods) for methods in loaded_json['paths'].values())
+        assert len(loaded_json['paths']) == 40, f"Ожидалось 40 путей, получено {len(loaded_json['paths'])}"
+        assert total_ops == 54, f"Ожидалось 54 операции, получено {total_ops}"
+        print(f"  -> OpenAPI JSON валиден! Путей: {len(loaded_json['paths'])}, Операций: {total_ops} (100% покрытие routes/api.php)")
 
     with open(yaml_path, 'r', encoding='utf-8') as f:
         loaded_yaml = yaml.safe_load(f)
