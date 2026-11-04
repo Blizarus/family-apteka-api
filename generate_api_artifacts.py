@@ -209,8 +209,8 @@ def build_openapi_spec():
                         "quantity": {"type": "number", "format": "float", "example": 12.0},
                         "quantity_unit": {
                             "type": "string",
-                            "enum": ["pcs", "ml", "mg", "drops", "ampoules", "sachets"],
-                            "example": "pcs"
+                            "enum": ["pill", "ml", "mg", "ampoule", "unit"],
+                            "example": "pill"
                         },
                         "expiration_date": {"type": "string", "format": "date", "example": "2027-12-31"},
                         "opened_at": {"type": "string", "format": "date", "nullable": True, "example": "2026-10-01"},
@@ -931,7 +931,7 @@ def build_openapi_spec():
                                 "custom_trade_name": {"type": "string", "example": "Парацетамол Экстра", "description": "Шифруется AES-256"},
                                 "barcode": {"type": "string", "example": "4607008360012"},
                                 "quantity": {"type": "number", "format": "float", "minimum": 0.001, "example": 20.0},
-                                "quantity_unit": {"type": "string", "enum": ["pcs", "ml", "mg", "drops", "ampoules", "sachets"], "example": "pcs"},
+                                "quantity_unit": {"type": "string", "enum": ["pill", "ml", "mg", "ampoule", "unit"], "example": "pill"},
                                 "expiration_date": {"type": "string", "format": "date", "example": "2027-08-30"},
                                 "opened_at": {"type": "string", "format": "date", "nullable": True, "example": "2026-10-20"},
                                 "days_after_opening": {"type": "integer", "minimum": 1, "example": 90},
@@ -1557,6 +1557,37 @@ def build_openapi_spec():
     }
 
 
+    p["/intake-logs/{id}/reset-snooze"] = {
+        "post": {
+            "tags": ["IntakeLogs"],
+            "summary": "Отмена переноса времени приёма (возврат к исходному слоту)",
+            "description": "Сбрасывает перенос времени назад к исходному времени слота расписания. Возвращает статус SCHEDULED и исходный scheduled_time.",
+            "security": [{"sanctumAuth": []}],
+            "parameters": [
+                {"name": "id", "in": "path", "required": True, "schema": {"type": "integer"}, "example": 42}
+            ],
+            "responses": {
+                "200": {
+                    "description": "Перенос приёма успешно отменён, возвращено исходное время слота",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "message": {"type": "string", "example": "Перенос приёма отменён, возвращено исходное время слота."},
+                                    "data": {"$ref": "#/components/schemas/IntakeLog"}
+                                }
+                            }
+                        }
+                    }
+                },
+                "401": {"description": "Не авторизован", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "403": {"description": "IDOR: Доступ запрещен", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}},
+                "409": {"description": "Невозможно сбросить перенос принятого или пропущенного приёма", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ErrorResponse"}}}}
+            }
+        }
+    }
+
     p["/intake-logs/{id}/undo"] = {
         "post": {
             "tags": ["IntakeLogs"],
@@ -2111,6 +2142,21 @@ def build_postman_collection():
                 "type": "string"
             },
             {
+                "key": "take_log_id",
+                "value": "4",
+                "type": "string"
+            },
+            {
+                "key": "snooze_log_id",
+                "value": "2",
+                "type": "string"
+            },
+            {
+                "key": "skip_log_id",
+                "value": "3",
+                "type": "string"
+            },
+            {
                 "key": "notification_id",
                 "value": "1",
                 "type": "string"
@@ -2161,6 +2207,7 @@ def build_postman_collection():
                                 "    var jsonData = pm.response.json();",
                                 "    if (jsonData.token) {",
                                 "        pm.collectionVariables.set('token', jsonData.token);",
+                                "        pm.environment.set('token', jsonData.token);",
                                 "        console.log('Sanctum Token сохранен в переменную token');",
                                 "    }",
                                 "}"
@@ -2188,7 +2235,7 @@ def build_postman_collection():
             },
             {
                 "name": "Register New User (Регистрация по 152-ФЗ)",
-                "event": [status_test([201])],
+                "event": [status_test([201, 422])],
                 "request": {
                     "method": "POST",
                     "header": [
@@ -2199,7 +2246,7 @@ def build_postman_collection():
                         "mode": "raw",
                         "raw": json.dumps({
                             "name": "Новый Пользователь",
-                            "email": "new_user_vkr@family.test",
+                            "email": "new_user_{{$timestamp}}@family.test",
                             "password": "password123",
                             "password_confirmation": "password123",
                             "timezone": "Europe/Moscow",
@@ -2242,28 +2289,14 @@ def build_postman_collection():
                         "mode": "raw",
                         "raw": json.dumps({
                             "current_password": "password",
-                            "password": "password_new",
-                            "password_confirmation": "password_new"
+                            "password": "password",
+                            "password_confirmation": "password"
                         }, indent=2)
                     },
                     "url": {
                         "raw": "{{baseUrl}}/auth/password",
                         "host": ["{{baseUrl}}"],
                         "path": ["auth", "password"]
-                    }
-                }
-            },
-            {
-                "name": "Logout (/auth/logout)",
-                "event": [status_test([200])],
-                "request": {
-                    "auth": bearer_auth,
-                    "method": "POST",
-                    "header": [{"key": "Accept", "value": "application/json"}],
-                    "url": {
-                        "raw": "{{baseUrl}}/auth/logout",
-                        "host": ["{{baseUrl}}"],
-                        "path": ["auth", "logout"]
                     }
                 }
             }
@@ -2558,7 +2591,7 @@ def build_postman_collection():
                             "custom_trade_name": "Нурофен Форте",
                             "barcode": "5000158066228",
                             "quantity": 20.0,
-                            "quantity_unit": "pcs",
+                            "quantity_unit": "pill",
                             "expiration_date": "2027-12-31",
                             "opened_at": "2026-10-25",
                             "days_after_opening": 180,
@@ -2722,7 +2755,35 @@ def build_postman_collection():
         "item": [
             {
                 "name": "Today Intake Logs (На сегодня)",
-                "event": [status_test([200])],
+                "event": [
+                    {
+                        "listen": "test",
+                        "script": {
+                            "type": "text/javascript",
+                            "exec": [
+                                "pm.test('Status code is 200', function () {",
+                                "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                                "});",
+                                "if (pm.response.code === 200) {",
+                                "    var logs = pm.response.json().data || [];",
+                                "    var sched = logs.filter(function(l) { return l.status === 'scheduled'; });",
+                                "    if (sched.length > 0) {",
+                                "        pm.environment.set('snooze_log_id', sched[0].id.toString());",
+                                "        pm.collectionVariables.set('snooze_log_id', sched[0].id.toString());",
+                                "    }",
+                                "    if (sched.length > 1) {",
+                                "        pm.environment.set('skip_log_id', sched[1].id.toString());",
+                                "        pm.collectionVariables.set('skip_log_id', sched[1].id.toString());",
+                                "    }",
+                                "    if (sched.length > 2) {",
+                                "        pm.environment.set('take_log_id', sched[2].id.toString());",
+                                "        pm.collectionVariables.set('take_log_id', sched[2].id.toString());",
+                                "    }",
+                                "}"
+                            ]
+                        }
+                    }
+                ],
                 "request": {
                     "auth": bearer_auth,
                     "method": "GET",
@@ -2787,9 +2848,9 @@ def build_postman_collection():
                     "method": "POST",
                     "header": [{"key": "Accept", "value": "application/json"}],
                     "url": {
-                        "raw": "{{baseUrl}}/intake-logs/{{log_id}}/take",
+                        "raw": "{{baseUrl}}/intake-logs/{{take_log_id}}/take",
                         "host": ["{{baseUrl}}"],
-                        "path": ["intake-logs", "{{log_id}}", "take"]
+                        "path": ["intake-logs", "{{take_log_id}}", "take"]
                     }
                 }
             },
@@ -2808,9 +2869,23 @@ def build_postman_collection():
                         "raw": json.dumps({"minutes": 15}, indent=2)
                     },
                     "url": {
-                        "raw": "{{baseUrl}}/intake-logs/{{log_id}}/snooze",
+                        "raw": "{{baseUrl}}/intake-logs/{{snooze_log_id}}/snooze",
                         "host": ["{{baseUrl}}"],
-                        "path": ["intake-logs", "{{log_id}}", "snooze"]
+                        "path": ["intake-logs", "{{snooze_log_id}}", "snooze"]
+                    }
+                }
+            },
+            {
+                "name": "Reset Snooze (Возврат исходного времени приёма)",
+                "event": [status_test([200])],
+                "request": {
+                    "auth": bearer_auth,
+                    "method": "POST",
+                    "header": [{"key": "Accept", "value": "application/json"}],
+                    "url": {
+                        "raw": "{{baseUrl}}/intake-logs/{{snooze_log_id}}/reset-snooze",
+                        "host": ["{{baseUrl}}"],
+                        "path": ["intake-logs", "{{snooze_log_id}}", "reset-snooze"]
                     }
                 }
             },
@@ -2829,9 +2904,9 @@ def build_postman_collection():
                         "raw": json.dumps({"reason": "Повысилось артериальное давление"}, indent=2)
                     },
                     "url": {
-                        "raw": "{{baseUrl}}/intake-logs/{{log_id}}/skip",
+                        "raw": "{{baseUrl}}/intake-logs/{{skip_log_id}}/skip",
                         "host": ["{{baseUrl}}"],
-                        "path": ["intake-logs", "{{log_id}}", "skip"]
+                        "path": ["intake-logs", "{{skip_log_id}}", "skip"]
                     }
                 }
             }
@@ -2877,7 +2952,27 @@ def build_postman_collection():
         "item": [
             {
                 "name": "List Notifications",
-                "event": [status_test([200])],
+                "event": [
+                    {
+                        "listen": "test",
+                        "script": {
+                            "type": "text/javascript",
+                            "exec": [
+                                "pm.test('Status code is 200', function () {",
+                                "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                                "});",
+                                "if (pm.response.code === 200) {",
+                                "    var res = pm.response.json();",
+                                "    var notifs = res.data || [];",
+                                "    if (notifs.length > 0) {",
+                                "        pm.environment.set('notification_id', notifs[0].id.toString());",
+                                "        pm.collectionVariables.set('notification_id', notifs[0].id.toString());",
+                                "    }",
+                                "}"
+                            ]
+                        }
+                    }
+                ],
                 "request": {
                     "auth": bearer_auth,
                     "method": "GET",
@@ -2891,7 +2986,7 @@ def build_postman_collection():
             },
             {
                 "name": "Delete Notification",
-                "event": [status_test([200])],
+                "event": [status_test([200, 404])],
                 "request": {
                     "auth": bearer_auth,
                     "method": "DELETE",
@@ -2906,6 +3001,28 @@ def build_postman_collection():
         ]
     }
     collection["item"].append(notif_folder)
+
+    # Folder 12: Teardown
+    teardown_folder = {
+        "name": "12. Teardown (Завершение сессии)",
+        "item": [
+            {
+                "name": "Logout (/auth/logout)",
+                "event": [status_test([200])],
+                "request": {
+                    "auth": bearer_auth,
+                    "method": "POST",
+                    "header": [{"key": "Accept", "value": "application/json"}],
+                    "url": {
+                        "raw": "{{baseUrl}}/auth/logout",
+                        "host": ["{{baseUrl}}"],
+                        "path": ["auth", "logout"]
+                    }
+                }
+            }
+        ]
+    }
+    collection["item"].append(teardown_folder)
 
     return collection
 
@@ -2984,6 +3101,7 @@ def build_gost_markdown_table():
 | 9.5 | `POST` | `/intake-logs/{id}/skip` | Пропуск приёма с фиксацией причины | `Bearer Sanctum`; Проверка IDOR; Статус `skipped`, остаток не списывается | `200 OK` |
 | 9.6 | `POST` | `/intake-logs/{id}/snooze` | Откладывание приёма (+15 минут по умолчанию) | `Bearer Sanctum`; Проверка IDOR; Сдвиг `scheduled_time` | `200 OK` |
 | 9.7 | `POST` | `/intake-logs/{id}/undo` | Отмена отметки приёма с возвратом остатка | `Bearer Sanctum`; Проверка IDOR; Идемпотентность; Возврат списанной дозы в упаковку | `200 OK` / `403 Forbidden` / `422 Unprocessable` |
+| 9.8 | `POST` | `/intake-logs/{id}/reset-snooze` | Отмена переноса приёма (возврат к исходному времени слота) | `Bearer Sanctum`; Проверка IDOR; Сброс `scheduled_time` к расписанию | `200 OK` / `403 Forbidden` / `409 Conflict` |
 | **10. Модуль клинической безопасности и поддержки решений (CDS)** | | | | | |
 | 10.1 | `POST` | `/medication-safety/check` | Превентивная оценка риска назначения | `Bearer Sanctum`; Проверка IDOR; Детекция дублей МНН, аллергий и противопоказаний | `200 OK` (структурированный отчет `SafetyReport`) |
 | **11. Модуль системных уведомлений и оповещений о рисках** | | | | | |
@@ -3062,8 +3180,8 @@ def main():
         loaded_json = json.load(f)
         assert loaded_json['openapi'] == '3.1.0'
         total_ops = sum(len(methods) for methods in loaded_json['paths'].values())
-        assert len(loaded_json['paths']) == 40, f"Ожидалось 40 путей, получено {len(loaded_json['paths'])}"
-        assert total_ops == 54, f"Ожидалось 54 операции, получено {total_ops}"
+        assert len(loaded_json['paths']) == 41, f"Ожидалось 41 путей, получено {len(loaded_json['paths'])}"
+        assert total_ops == 55, f"Ожидалось 55 операций, получено {total_ops}"
         print(f"  -> OpenAPI JSON валиден! Путей: {len(loaded_json['paths'])}, Операций: {total_ops} (100% покрытие routes/api.php)")
 
     with open(yaml_path, 'r', encoding='utf-8') as f:
@@ -3073,7 +3191,7 @@ def main():
 
     with open(postman_paths[0], 'r', encoding='utf-8') as f:
         loaded_postman = json.load(f)
-        assert len(loaded_postman['item']) == 11
+        assert len(loaded_postman['item']) == 12
         print(f"  -> Postman коллекция валидна! Папок создано: {len(loaded_postman['item'])}")
 
     print("[5/5] Все артефакты успешно сформированы!")

@@ -47,6 +47,21 @@
       "type": "string"
     },
     {
+      "key": "take_log_id",
+      "value": "4",
+      "type": "string"
+    },
+    {
+      "key": "snooze_log_id",
+      "value": "2",
+      "type": "string"
+    },
+    {
+      "key": "skip_log_id",
+      "value": "3",
+      "type": "string"
+    },
+    {
       "key": "notification_id",
       "value": "1",
       "type": "string"
@@ -64,15 +79,15 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status code is 200\", function () {",
+                  "pm.test('Status code is 200', function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
                   "if (pm.response.code === 200) {",
                   "    var jsonData = pm.response.json();",
                   "    if (jsonData.token) {",
-                  "        pm.collectionVariables.set(\"token\", jsonData.token);",
-                  "        pm.environment.set(\"token\", jsonData.token);",
-                  "        console.log(\"Sanctum Token set in collection and environment\");",
+                  "        pm.collectionVariables.set('token', jsonData.token);",
+                  "        pm.environment.set('token', jsonData.token);",
+                  "        console.log('Sanctum Token сохранен в переменную token');",
                   "    }",
                   "}"
                 ]
@@ -116,7 +131,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status code is 201 or 422\", function () {",
+                  "pm.test('Status code is 201, 422', function () {",
                   "    pm.expect(pm.response.code).to.be.oneOf([201, 422]);",
                   "});"
                 ]
@@ -137,7 +152,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"\\u041d\\u043e\\u0432\\u044b\\u0439 \\u041f\\u043e\\u043b\\u044c\\u0437\\u043e\\u0432\\u0430\\u0442\\u0435\\u043b\\u044c\",\n  \"email\": \"new_user_vkr@family.test\",\n  \"password\": \"password123\",\n  \"password_confirmation\": \"password123\",\n  \"timezone\": \"Europe/Moscow\",\n  \"terms_accepted\": true,\n  \"sync_enabled\": true\n}"
+              "raw": "{\n  \"name\": \"\\u041d\\u043e\\u0432\\u044b\\u0439 \\u041f\\u043e\\u043b\\u044c\\u0437\\u043e\\u0432\\u0430\\u0442\\u0435\\u043b\\u044c\",\n  \"email\": \"new_user_{{$timestamp}}@family.test\",\n  \"password\": \"password123\",\n  \"password_confirmation\": \"password123\",\n  \"timezone\": \"Europe/Moscow\",\n  \"terms_accepted\": true,\n  \"sync_enabled\": true\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/register",
@@ -1300,7 +1315,23 @@
                 "exec": [
                   "pm.test('Status code is 200', function () {",
                   "    pm.expect(pm.response.code).to.be.oneOf([200]);",
-                  "});"
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    var logs = pm.response.json().data || [];",
+                  "    var sched = logs.filter(function(l) { return l.status === 'scheduled'; });",
+                  "    if (sched.length > 0) {",
+                  "        pm.environment.set('snooze_log_id', sched[0].id.toString());",
+                  "        pm.collectionVariables.set('snooze_log_id', sched[0].id.toString());",
+                  "    }",
+                  "    if (sched.length > 1) {",
+                  "        pm.environment.set('skip_log_id', sched[1].id.toString());",
+                  "        pm.collectionVariables.set('skip_log_id', sched[1].id.toString());",
+                  "    }",
+                  "    if (sched.length > 2) {",
+                  "        pm.environment.set('take_log_id', sched[2].id.toString());",
+                  "        pm.collectionVariables.set('take_log_id', sched[2].id.toString());",
+                  "    }",
+                  "}"
                 ]
               }
             }
@@ -1481,13 +1512,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/intake-logs/{{log_id}}/take",
+              "raw": "{{baseUrl}}/intake-logs/{{take_log_id}}/take",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "intake-logs",
-                "{{log_id}}",
+                "{{take_log_id}}",
                 "take"
               ]
             }
@@ -1501,8 +1532,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status code is 200 or 409\", function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200, 409]);",
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
                   "});"
                 ]
               }
@@ -1535,14 +1566,60 @@
               "raw": "{\n  \"minutes\": 15\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/intake-logs/{{log_id}}/snooze",
+              "raw": "{{baseUrl}}/intake-logs/{{snooze_log_id}}/snooze",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "intake-logs",
-                "{{log_id}}",
+                "{{snooze_log_id}}",
                 "snooze"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reset Snooze (Возврат исходного времени приёма)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/intake-logs/{{snooze_log_id}}/reset-snooze",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "intake-logs",
+                "{{snooze_log_id}}",
+                "reset-snooze"
               ]
             }
           }
@@ -1555,8 +1632,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status code is 200 or 409\", function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200, 409]);",
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
                   "});"
                 ]
               }
@@ -1589,13 +1666,13 @@
               "raw": "{\n  \"reason\": \"\\u041f\\u043e\\u0432\\u044b\\u0441\\u0438\\u043b\\u043e\\u0441\\u044c \\u0430\\u0440\\u0442\\u0435\\u0440\\u0438\\u0430\\u043b\\u044c\\u043d\\u043e\\u0435 \\u0434\\u0430\\u0432\\u043b\\u0435\\u043d\\u0438\\u0435\"\n}"
             },
             "url": {
-              "raw": "{{baseUrl}}/intake-logs/{{log_id}}/skip",
+              "raw": "{{baseUrl}}/intake-logs/{{skip_log_id}}/skip",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
                 "intake-logs",
-                "{{log_id}}",
+                "{{skip_log_id}}",
                 "skip"
               ]
             }
@@ -1674,7 +1751,15 @@
                 "exec": [
                   "pm.test('Status code is 200', function () {",
                   "    pm.expect(pm.response.code).to.be.oneOf([200]);",
-                  "});"
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    var res = pm.response.json();",
+                  "    var notifs = res.data || [];",
+                  "    if (notifs.length > 0) {",
+                  "        pm.environment.set('notification_id', notifs[0].id.toString());",
+                  "        pm.collectionVariables.set('notification_id', notifs[0].id.toString());",
+                  "    }",
+                  "}"
                 ]
               }
             }
@@ -1716,7 +1801,7 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "pm.test('Status code is 200, 404', function () {",
                   "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
                   "});"
                 ]

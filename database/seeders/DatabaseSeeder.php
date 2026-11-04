@@ -14,6 +14,8 @@ use App\Models\IntakeSchedule;
 use App\Models\Medicine;
 use App\Models\MedicineBox;
 use App\Models\MedicineBoxUser;
+use App\Models\NotificationLog;
+use App\NotificationLogType;
 use App\Models\Profile;
 use App\Models\ReferenceMedicine;
 use App\Models\User;
@@ -416,6 +418,19 @@ class DatabaseSeeder extends Seeder
             'taken_time' => null,
             'quantity_taken' => 1.0,
             'status' => IntakeLogStatus::SCHEDULED,
+        ]);
+
+        // 7. Системные уведомления для владельца аккаунта
+        NotificationLog::create([
+            'user_id' => $user->id,
+            'entity_type' => User::class,
+            'entity_id' => $user->id,
+            'type' => NotificationLogType::EXPIRY_WARNING_7D,
+            'title' => 'Истекает срок годности',
+            'message' => 'Препарат Нурофен истекает через 3 дня.',
+            'channel' => 'push',
+            'status' => 'sent',
+            'sent_at' => now(),
         ]);
     }
 }

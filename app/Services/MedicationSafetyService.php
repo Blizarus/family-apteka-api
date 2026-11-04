@@ -108,6 +108,7 @@ class MedicationSafetyService
             'is_safe' => $isSafe,
             'has_critical' => $hasCritical,
             'warnings' => array_values(array_unique($warnings)),
+            'interactions' => $ddiResult['interactions'] ?? [],
             'unverified_checks' => array_values(array_unique($unverifiedChecks)),
             'disclaimer' => 'Автоматическая проверка взаимодействия лекарств носит информационный характер и не заменяет консультацию врача или провизора. При наличии сомнений проконсультируйтесь со специалистом.',
         ];
@@ -491,6 +492,7 @@ class MedicationSafetyService
         array &$unverifiedChecks = []
     ): array {
         $warnings = [];
+        $interactions = [];
         $hasCritical = false;
 
         $targetInnClean = mb_strtolower(trim($targetInn));
@@ -506,12 +508,12 @@ class MedicationSafetyService
             ->get();
 
         if ($activeCourses->isEmpty()) {
-            return ['warnings' => [], 'has_critical' => false];
+            return ['warnings' => [], 'interactions' => [], 'has_critical' => false];
         }
 
         if (empty($targetInnClean) && empty($targetAtcClean)) {
             $unverifiedChecks[] = "Клинический аудит межлекарственных взаимодействий (DDI) для препарата «{$targetTradeName}» не может быть гарантирован: отсутствуют верифицированные фармакологические коды МНН и АТХ.";
-            return ['warnings' => [], 'has_critical' => false];
+            return ['warnings' => [], 'interactions' => [], 'has_critical' => false];
         }
 
         $targetMedicineId = $targetMedicine instanceof Medicine ? $targetMedicine->id : null;
@@ -568,38 +570,79 @@ class MedicationSafetyService
             if (($isNsaid($targetInnClean, $targetAtcClean) && $isAnticoagulant($activeInn, $activeAtc)) ||
                 ($isAnticoagulant($targetInnClean, $targetAtcClean) && $isNsaid($activeInn, $activeAtc))) {
                 $hasCritical = true;
-                $warnings[] = "Критический конфликт DDI: совместный приём НПВП («{$targetTradeName}») и антикоагулянта/антиагреганта («{$activeTradeName}») резко потенцирует риск профузных желудочно-кишечных кровотечений.";
+                $msg = "Критический конфликт DDI: совместный приём НПВП («{$targetTradeName}») и антикоагулянта/антиагреганта («{$activeTradeName}») резко потенцирует риск профузных желудочно-кишечных кровотечений.";
+                $warnings[] = $msg;
+                $interactions[] = [
+                    'target_medicine' => $targetTradeName,
+                    'interacting_medicine' => $activeTradeName,
+                    'severity' => 'contraindicated',
+                    'source' => 'Минздрав РФ / ГРЛС / FDA',
+                    'description' => $msg,
+                ];
             }
 
             // 2. Нитраты + Ингибиторы ФДЭ-5 (Критический)
             if (($isNitrate($targetInnClean, $targetAtcClean) && $isPde5($activeInn, $activeAtc)) ||
                 ($isPde5($targetInnClean, $targetAtcClean) && $isNitrate($activeInn, $activeAtc))) {
                 $hasCritical = true;
-                $warnings[] = "Критический конфликт DDI: совместный приём органических нитратов («{$targetTradeName}») и ингибиторов ФДЭ-5 («{$activeTradeName}») вызывает неконтролируемую вазодилатацию, сосудистый коллапс и угрожающую жизни артериальную гипотензию.";
+                $msg = "Критический конфликт DDI: совместный приём органических нитратов («{$targetTradeName}») и ингибиторов ФДЭ-5 («{$activeTradeName}») вызывает неконтролируемую вазодилатацию, сосудистый коллапс и угрожающую жизни артериальную гипотензию.";
+                $warnings[] = $msg;
+                $interactions[] = [
+                    'target_medicine' => $targetTradeName,
+                    'interacting_medicine' => $activeTradeName,
+                    'severity' => 'contraindicated',
+                    'source' => 'Минздрав РФ / ГРЛС / FDA',
+                    'description' => $msg,
+                ];
             }
 
             // 3. Калийсберегающие диуретики + Препараты калия / иАПФ (Критический)
             if (($isPotassiumSparing($targetInnClean, $targetAtcClean) && $isPotassiumOrAce($activeInn, $activeAtc)) ||
                 ($isPotassiumOrAce($targetInnClean, $targetAtcClean) && $isPotassiumSparing($activeInn, $activeAtc))) {
                 $hasCritical = true;
-                $warnings[] = "Критический конфликт DDI: сочетание калийсберегающих диуретиков («{$targetTradeName}») с препаратами калия или ингибиторами АПФ («{$activeTradeName}») несёт высокий риск тяжёлой гиперкалиемии и фатальных нарушений сердечного ритма.";
+                $msg = "Критический конфликт DDI: сочетание калийсберегающих диуретиков («{$targetTradeName}») с препаратами калия или ингибиторами АПФ («{$activeTradeName}») несёт высокий риск тяжёлой гиперкалиемии и фатальных нарушений сердечного ритма.";
+                $warnings[] = $msg;
+                $interactions[] = [
+                    'target_medicine' => $targetTradeName,
+                    'interacting_medicine' => $activeTradeName,
+                    'severity' => 'contraindicated',
+                    'source' => 'Минздрав РФ / ГРЛС / FDA',
+                    'description' => $msg,
+                ];
             }
 
             // 4. НПВП + Ингибиторы АПФ / БРА (Сартаны) (Предостережение)
             if (($isNsaid($targetInnClean, $targetAtcClean) && $isAceOrArb($activeInn, $activeAtc)) ||
                 ($isAceOrArb($targetInnClean, $targetAtcClean) && $isNsaid($activeInn, $activeAtc))) {
-                $warnings[] = "Предостережение DDI: совместный приём НПВП («{$targetTradeName}») и ингибиторов АПФ/БРА («{$activeTradeName}») нивелирует антигипертензивный эффект и повышает риск нефротоксичности/острой почечной недостаточности.";
+                $msg = "Предостережение DDI: совместный приём НПВП («{$targetTradeName}») и ингибиторов АПФ/БРА («{$activeTradeName}») нивелирует антигипертензивный эффект и повышает риск нефротоксичности/острой почечной недостаточности.";
+                $warnings[] = $msg;
+                $interactions[] = [
+                    'target_medicine' => $targetTradeName,
+                    'interacting_medicine' => $activeTradeName,
+                    'severity' => 'warning',
+                    'source' => 'Минздрав РФ / ГРЛС / FDA',
+                    'description' => $msg,
+                ];
             }
 
             // 5. Макролиды (ингибиторы CYP3A4) + Статины (субстраты CYP3A4) (Предостережение)
             if (($isCyp3a4Macrolide($targetInnClean, $targetAtcClean) && $isCyp3a4Statin($activeInn, $activeAtc)) ||
                 ($isCyp3a4Statin($targetInnClean, $targetAtcClean) && $isCyp3a4Macrolide($activeInn, $activeAtc))) {
-                $warnings[] = "Предостережение DDI (фармакокинетическое): кларитромицин/эритромицин («{$targetTradeName}») блокирует метаболизм статина («{$activeTradeName}») через изофермент CYP3A4, повышая его концентрацию в крови и риск поражения мышц (миопатия, рабдомиолиз).";
+                $msg = "Предостережение DDI (фармакокинетическое): кларитромицин/эритромицин («{$targetTradeName}») блокирует метаболизм статина («{$activeTradeName}») через изофермент CYP3A4, повышая его концентрацию в крови и риск поражения мышц (миопатия, рабдомиолиз).";
+                $warnings[] = $msg;
+                $interactions[] = [
+                    'target_medicine' => $targetTradeName,
+                    'interacting_medicine' => $activeTradeName,
+                    'severity' => 'warning',
+                    'source' => 'Минздрав РФ / ГРЛС / FDA',
+                    'description' => $msg,
+                ];
             }
         }
 
         return [
             'warnings' => array_values(array_unique($warnings)),
+            'interactions' => $interactions,
             'has_critical' => $hasCritical,
         ];
     }

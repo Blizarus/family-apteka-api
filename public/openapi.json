@@ -419,14 +419,13 @@
           "quantity_unit": {
             "type": "string",
             "enum": [
-              "pcs",
+              "pill",
               "ml",
               "mg",
-              "drops",
-              "ampoules",
-              "sachets"
+              "ampoule",
+              "unit"
             ],
-            "example": "pcs"
+            "example": "pill"
           },
           "expiration_date": {
             "type": "string",
@@ -2344,14 +2343,13 @@
                   "quantity_unit": {
                     "type": "string",
                     "enum": [
-                      "pcs",
+                      "pill",
                       "ml",
                       "mg",
-                      "drops",
-                      "ampoules",
-                      "sachets"
+                      "ampoule",
+                      "unit"
                     ],
-                    "example": "pcs"
+                    "example": "pill"
                   },
                   "expiration_date": {
                     "type": "string",
@@ -4098,6 +4096,82 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/intake-logs/{id}/reset-snooze": {
+      "post": {
+        "tags": [
+          "IntakeLogs"
+        ],
+        "summary": "Отмена переноса времени приёма (возврат к исходному слоту)",
+        "description": "Сбрасывает перенос времени назад к исходному времени слота расписания. Возвращает статус SCHEDULED и исходный scheduled_time.",
+        "security": [
+          {
+            "sanctumAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            },
+            "example": 42
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Перенос приёма успешно отменён, возвращено исходное время слота",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": {
+                      "type": "string",
+                      "example": "Перенос приёма отменён, возвращено исходное время слота."
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/IntakeLog"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Не авторизован",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "IDOR: Доступ запрещен",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Невозможно сбросить перенос принятого или пропущенного приёма",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }

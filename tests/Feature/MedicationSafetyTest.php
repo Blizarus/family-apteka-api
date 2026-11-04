@@ -1035,4 +1035,76 @@ class MedicationSafetyTest extends TestCase
         $this->assertStringContainsString('DDI', $unverified);
         $this->assertStringContainsString('МНН и АТХ', $unverified);
     }
+
+    /**
+     * Проверка возврата структурированных взаимодействий (interactions)
+     * с указанием severity (contraindicated, warning) и источника (DEF-24).
+     */
+    public function test_ddi_returns_structured_interactions_with_severity_and_source(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        // Активный курс Варфарина (антикоагулянт)
+        $warfarinRef = ReferenceMedicine::create([
+            'trade_name' => 'Варфарин Никомед',
+            'inn' => 'Варфарин',
+            'atc_code' => 'B01AA03',
+            'dosage_form' => 'таблетки',
+            'dosage' => '2.5 мг',
+            'pack_size' => 50,
+            'manufacturer' => 'Takeda',
+            'country' => 'Дания',
+            'barcode' => '4601234567899',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+        $warfarinMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => $warfarinRef->id,
+            'custom_trade_name' => 'Варфарин Никомед',
+            'form' => 'таблетки',
+            'quantity' => 50,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+        IntakeCourse::create([
+            'profile_id' => $this->elenaProfile->id,
+            'medicine_id' => $warfarinMed->id,
+            'title' => 'Курс Варфарина',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => '1 таб вечером',
+            'is_active' => true,
+        ]);
+
+        // Проверяем назначение Ибупрофена (НПВП)
+        $ibuprofenMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => $this->ibuprofen->id,
+            'custom_trade_name' => 'Ибупрофен 400',
+            'form' => 'таблетки',
+            'quantity' => 20,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+
+        $response = $this->postJson('/api/medication-safety/check', [
+            'profile_id' => $this->elenaProfile->id,
+            'medicine_id' => $ibuprofenMed->id,
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertEquals('conflict', $response->json('data.status'));
+        $this->assertTrue($response->json('data.has_critical'));
+        
+        $interactions = $response->json('data.interactions');
+        $this->assertIsArray($interactions);
+        $this->assertNotEmpty($interactions);
+        $this->assertEquals('contraindicated', $interactions[0]['severity']);
+        $this->assertStringContainsString('Минздрав РФ', $interactions[0]['source']);
+        $this->assertStringContainsString('кровотечен', mb_strtolower($interactions[0]['description']));
+    }
 }
