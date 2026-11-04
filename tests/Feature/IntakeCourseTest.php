@@ -137,13 +137,17 @@ class IntakeCourseTest extends TestCase
         $firstLog = IntakeLog::orderBy('scheduled_time', 'asc')->first();
         $lastLog = IntakeLog::orderBy('scheduled_time', 'desc')->first();
 
+        $userTz = $this->user->timezone ?? 'Europe/Moscow';
+        $expectedFirstUtc = Carbon::createFromFormat('Y-m-d H:i', Carbon::today()->toDateString() . ' 08:00', $userTz)->setTimezone('UTC');
+        $expectedLastUtc = Carbon::createFromFormat('Y-m-d H:i', Carbon::today()->addDays(13)->toDateString() . ' 20:00', $userTz)->setTimezone('UTC');
+
         $this->assertEquals(
-            Carbon::today()->setTime(8, 0)->format('Y-m-d H:i'),
+            $expectedFirstUtc->format('Y-m-d H:i'),
             $firstLog->scheduled_time->format('Y-m-d H:i')
         );
 
         $this->assertEquals(
-            Carbon::today()->addDays(13)->setTime(20, 0)->format('Y-m-d H:i'),
+            $expectedLastUtc->format('Y-m-d H:i'),
             $lastLog->scheduled_time->format('Y-m-d H:i')
         );
     }

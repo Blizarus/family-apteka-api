@@ -116,13 +116,14 @@ class IntakeCourseController extends Controller
             }
 
             // 3) Автоматическая генерация логов intake_logs на ближайшие 14 дней вперед со статусом scheduled
-            $startDate = Carbon::parse($course->start_date);
-            $today = Carbon::today();
+            $userTimezone = $profile->user?->timezone ?? 'Europe/Moscow';
+            $startDate = Carbon::parse($course->start_date, $userTimezone)->startOfDay();
+            $today = Carbon::now($userTimezone)->startOfDay();
             $beginDate = $startDate->greaterThan($today) ? $startDate->copy() : $today->copy();
             $targetEndDate = $beginDate->copy()->addDays(13); // 14 дней включительно
 
             if (! empty($course->end_date)) {
-                $courseEnd = Carbon::parse($course->end_date);
+                $courseEnd = Carbon::parse($course->end_date, $userTimezone)->startOfDay();
                 if ($courseEnd->lessThan($targetEndDate)) {
                     $targetEndDate = $courseEnd;
                 }
@@ -134,7 +135,11 @@ class IntakeCourseController extends Controller
                     foreach ($schedules as $schedule) {
                         $slotTime = $schedule->time_slots[0] ?? '08:00';
                         [$hour, $minute] = explode(':', $slotTime);
-                        $scheduledDateTime = $date->copy()->setTime((int) $hour, (int) $minute, 0);
+                        $scheduledDateTime = Carbon::createFromFormat(
+                            'Y-m-d H:i:s',
+                            $date->format('Y-m-d') . ' ' . sprintf('%02d:%02d:00', (int) $hour, (int) $minute),
+                            $userTimezone
+                        )->setTimezone('UTC');
 
                         IntakeLog::create([
                             'intake_course_id' => $course->id,
@@ -239,6 +244,7 @@ class IntakeCourseController extends Controller
                 ]);
             }
 
+            $userTimezone = $intakeCourse->profile?->user?->timezone ?? 'Europe/Moscow';
             $logsCount = 0;
             if ($beginDate->lessThanOrEqualTo($targetEndDate)) {
                 for ($date = $beginDate->copy(); $date->lessThanOrEqualTo($targetEndDate); $date->addDay()) {
@@ -246,7 +252,11 @@ class IntakeCourseController extends Controller
                         $timeSlots = is_array($schedule->time_slots) ? $schedule->time_slots : ['08:00'];
                         foreach ($timeSlots as $slotTime) {
                             [$hour, $minute] = array_pad(explode(':', (string) $slotTime), 2, '00');
-                            $scheduledDateTime = $date->copy()->setTime((int) $hour, (int) $minute, 0);
+                            $scheduledDateTime = Carbon::createFromFormat(
+                                'Y-m-d H:i:s',
+                                $date->format('Y-m-d') . ' ' . sprintf('%02d:%02d:00', (int) $hour, (int) $minute),
+                                $userTimezone
+                            )->setTimezone('UTC');
 
                             IntakeLog::create([
                                 'intake_course_id' => $intakeCourse->id,

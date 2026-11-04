@@ -249,8 +249,12 @@ class IntakeCourseManagementTest extends TestCase
             ->skip(3)
             ->first();
 
+        $userTz = $this->user->timezone ?? 'Europe/Moscow';
+        $expectedFourthUtc = Carbon::createFromFormat('Y-m-d H:i', $today->copy()->addDays(3)->toDateString() . ' 08:00', $userTz)->setTimezone('UTC');
+        $expectedLastUtc = Carbon::createFromFormat('Y-m-d H:i', $today->copy()->addDays(16)->toDateString() . ' 08:00', $userTz)->setTimezone('UTC');
+
         $this->assertEquals(
-            $today->copy()->addDays(3)->setTime(8, 0)->format('Y-m-d H:i'),
+            $expectedFourthUtc->format('Y-m-d H:i'),
             $fourthLog->scheduled_time->format('Y-m-d H:i')
         );
 
@@ -260,7 +264,7 @@ class IntakeCourseManagementTest extends TestCase
             ->first();
 
         $this->assertEquals(
-            $today->copy()->addDays(16)->setTime(8, 0)->format('Y-m-d H:i'),
+            $expectedLastUtc->format('Y-m-d H:i'),
             $lastLog->scheduled_time->format('Y-m-d H:i')
         );
     }

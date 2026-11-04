@@ -126,13 +126,17 @@ class IntakeCourseGenerationTest extends TestCase
             ->orderBy('scheduled_time', 'desc')
             ->first();
 
+        $userTz = $this->user->timezone ?? 'Europe/Moscow';
+        $expectedFirstUtc = Carbon::createFromFormat('Y-m-d H:i', Carbon::today()->toDateString() . ' 09:00', $userTz)->setTimezone('UTC');
+        $expectedLastUtc = Carbon::createFromFormat('Y-m-d H:i', Carbon::today()->addDays(13)->toDateString() . ' 21:00', $userTz)->setTimezone('UTC');
+
         $this->assertEquals(
-            Carbon::today()->setTime(9, 0)->format('Y-m-d H:i'),
+            $expectedFirstUtc->format('Y-m-d H:i'),
             $firstLog->scheduled_time->format('Y-m-d H:i')
         );
 
         $this->assertEquals(
-            Carbon::today()->addDays(13)->setTime(21, 0)->format('Y-m-d H:i'),
+            $expectedLastUtc->format('Y-m-d H:i'),
             $lastLog->scheduled_time->format('Y-m-d H:i')
         );
     }

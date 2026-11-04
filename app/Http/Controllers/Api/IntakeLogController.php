@@ -700,6 +700,52 @@ class IntakeLogController extends Controller
     }
 
     /**
+     * Сброс отложенного приёма назад к исходному времени слота (reset-snooze).
+     */
+    public function resetSnooze(Request $request, int $id): JsonResponse
+    {
+        $user = $request->user();
+        $userProfileIds = $user->profiles()->pluck('id');
+
+        return DB::transaction(function () use ($id, $userProfileIds) {
+            $intakeLog = IntakeLog::lockForUpdate()
+                ->with(['intakeCourse.profile.user', 'intakeSchedule'])
+                ->findOrFail($id);
+
+            if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
+                return response()->json(['message' => 'Доступ к данному приему запрещен (IDOR).'], 403);
+            }
+
+            if ($intakeLog->status === IntakeLogStatus::TAKEN) {
+                return response()->json(['message' => 'Невозможно отменить перенос уже принятого препарата.'], 409);
+            }
+
+            if ($intakeLog->status === IntakeLogStatus::SKIPPED) {
+                return response()->json(['message' => 'Невозможно отменить перенос пропущенного приёма.'], 409);
+            }
+
+            $userTimezone = $intakeLog->intakeCourse?->profile?->user?->timezone ?? 'Europe/Moscow';
+            $slotTime = $intakeLog->intakeSchedule?->time_slots[0] ?? '08:00';
+            [$hour, $minute] = explode(':', $slotTime);
+
+            $currentLocal = Carbon::parse($intakeLog->scheduled_time)->setTimezone($userTimezone);
+            $restoredTime = Carbon::createFromFormat(
+                'Y-m-d H:i:s',
+                $currentLocal->format('Y-m-d') . ' ' . sprintf('%02d:%02d:00', (int) $hour, (int) $minute),
+                $userTimezone
+            )->setTimezone('UTC');
+
+            $intakeLog->scheduled_time = $restoredTime;
+            $intakeLog->save();
+
+            return response()->json([
+                'message' => 'Перенос приёма отменён, возвращено исходное время слота.',
+                'data' => $intakeLog->fresh(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine']),
+            ], 200);
+        });
+    }
+
+    /**
      * Отмена фиксации приёма лекарства (Undo).
      * Возвращает ТОЛЬКО фактически списанный остаток (deducted_quantity) физическому препарату,
      * сбрасывает статус в SCHEDULED под lockForUpdate, работает идемпотентно и с проверкой прав.

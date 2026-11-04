@@ -91,6 +91,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/take', [IntakeLogController::class, 'take']);
         Route::post('/{id}/skip', [IntakeLogController::class, 'skip']);
         Route::post('/{id}/snooze', [IntakeLogController::class, 'snooze']);
+        Route::post('/{id}/reset-snooze', [IntakeLogController::class, 'resetSnooze']);
         Route::post('/{id}/undo', [IntakeLogController::class, 'undo']);
     });
 
