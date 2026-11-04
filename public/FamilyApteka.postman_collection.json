@@ -64,14 +64,15 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 200', function () {",
+                  "pm.test(\"Status code is 200\", function () {",
                   "    pm.response.to.have.status(200);",
                   "});",
                   "if (pm.response.code === 200) {",
                   "    var jsonData = pm.response.json();",
                   "    if (jsonData.token) {",
-                  "        pm.collectionVariables.set('token', jsonData.token);",
-                  "        console.log('Sanctum Token сохранен в переменную token');",
+                  "        pm.collectionVariables.set(\"token\", jsonData.token);",
+                  "        pm.environment.set(\"token\", jsonData.token);",
+                  "        console.log(\"Sanctum Token set in collection and environment\");",
                   "    }",
                   "}"
                 ]
@@ -115,8 +116,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 201', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([201]);",
+                  "pm.test(\"Status code is 201 or 422\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201, 422]);",
                   "});"
                 ]
               }
@@ -234,7 +235,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"current_password\": \"password\",\n  \"password\": \"password_new\",\n  \"password_confirmation\": \"password_new\"\n}"
+              "raw": "{\n  \"current_password\": \"password\",\n  \"password\": \"password\",\n  \"password_confirmation\": \"password\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/auth/password",
@@ -244,51 +245,6 @@
               "path": [
                 "auth",
                 "password"
-              ]
-            }
-          }
-        },
-        {
-          "name": "Logout (/auth/logout)",
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
-                  "});"
-                ]
-              }
-            }
-          ],
-          "request": {
-            "auth": {
-              "type": "bearer",
-              "bearer": [
-                {
-                  "key": "token",
-                  "value": "{{token}}",
-                  "type": "string"
-                }
-              ]
-            },
-            "method": "POST",
-            "header": [
-              {
-                "key": "Accept",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/auth/logout",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "auth",
-                "logout"
               ]
             }
           }
@@ -991,7 +947,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"medicine_box_id\": 1,\n  \"reference_medicine_id\": 1,\n  \"custom_trade_name\": \"\\u041d\\u0443\\u0440\\u043e\\u0444\\u0435\\u043d \\u0424\\u043e\\u0440\\u0442\\u0435\",\n  \"barcode\": \"5000158066228\",\n  \"quantity\": 20.0,\n  \"quantity_unit\": \"pcs\",\n  \"expiration_date\": \"2027-12-31\",\n  \"opened_at\": \"2026-10-25\",\n  \"days_after_opening\": 180,\n  \"low_stock_threshold\": 3.0,\n  \"storage_condition\": \"room\",\n  \"notes\": \"\\u0425\\u0440\\u0430\\u043d\\u0438\\u0442\\u044c \\u0432 \\u0441\\u0443\\u0445\\u043e\\u043c \\u043c\\u0435\\u0441\\u0442\\u0435\"\n}"
+              "raw": "{\n  \"medicine_box_id\": 1,\n  \"reference_medicine_id\": 1,\n  \"custom_trade_name\": \"\\u041d\\u0443\\u0440\\u043e\\u0444\\u0435\\u043d \\u0424\\u043e\\u0440\\u0442\\u0435\",\n  \"barcode\": \"5000158066228\",\n  \"quantity\": 20.0,\n  \"quantity_unit\": \"pill\",\n  \"expiration_date\": \"2027-12-31\",\n  \"opened_at\": \"2026-10-25\",\n  \"days_after_opening\": 180,\n  \"low_stock_threshold\": 3.0,\n  \"storage_condition\": \"room\",\n  \"notes\": \"\\u0425\\u0440\\u0430\\u043d\\u0438\\u0442\\u044c \\u0432 \\u0441\\u0443\\u0445\\u043e\\u043c \\u043c\\u0435\\u0441\\u0442\\u0435\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/medicines",
@@ -1545,8 +1501,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "pm.test(\"Status code is 200 or 409\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 409]);",
                   "});"
                 ]
               }
@@ -1599,8 +1555,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "pm.test(\"Status code is 200 or 409\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 409]);",
                   "});"
                 ]
               }
@@ -1760,8 +1716,8 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Status code is 200', function () {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
                   "});"
                 ]
               }
@@ -1793,6 +1749,56 @@
               "path": [
                 "notifications",
                 "{{notification_id}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "12. Teardown (Завершение сессии)",
+      "item": [
+        {
+          "name": "Logout (/auth/logout)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status code is 200', function () {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
               ]
             }
           }

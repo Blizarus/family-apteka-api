@@ -785,7 +785,7 @@ class IntakeLogController extends Controller
                 // Возвращаем строго фактически списанное количество (deducted_quantity)
                 $amountToRefund = (float) ($intakeLog->deducted_quantity ?? 0.0);
 
-                if ($amountToRefund > 0 && $medicine) {
+                if ($amountToRefund > 0.0001 && $medicine) {
                     DB::table('medicines')
                         ->where('id', $medicine->id)
                         ->increment('quantity', $amountToRefund);
@@ -797,6 +797,11 @@ class IntakeLogController extends Controller
                     }
                     $currentStock = (float) $medicine->quantity;
                     $refundedQuantity = $amountToRefund;
+                    $notificationBody = "Приём препарата #{$intakeLog->id} отменён. На остаток возвращено {$refundedQuantity} ед.";
+                } else {
+                    // Приём был зафиксирован без фактического списания (confirm_without_stock)
+                    $refundedQuantity = 0.0;
+                    $notificationBody = "Приём препарата #{$intakeLog->id} отменён. Препарат был принят без списания остатка, складской баланс не изменялся.";
                 }
 
                 $intakeLog->status = IntakeLogStatus::SCHEDULED;
@@ -809,7 +814,7 @@ class IntakeLogController extends Controller
                     'entity_type' => IntakeLog::class,
                     'entity_id' => $intakeLog->id,
                     'title' => 'Отмена приёма лекарства',
-                    'message' => "Приём препарата #{$intakeLog->id} отменён. На остаток возвращено {$refundedQuantity} ед.",
+                    'message' => $notificationBody,
                     'type' => NotificationLogType::INTAKE_UNDO,
                     'channel' => 'system',
                     'status' => 'sent',

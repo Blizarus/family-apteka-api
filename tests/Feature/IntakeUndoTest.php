@@ -263,4 +263,73 @@ class IntakeUndoTest extends TestCase
         $this->medicine->refresh();
         $this->assertEquals(9.0, (float) $this->medicine->quantity);
     }
+
+    /**
+     * 6. DEF-28: Откат приёма без списания (confirm_without_stock):
+     * не изменяет складской баланс, не переводит finished препарат в active,
+     * возвращает refunded_quantity = 0.0 и создает честное уведомление.
+     */
+    public function test_undo_intake_confirmed_without_stock_does_not_modify_inventory_balance(): void
+    {
+        $emptyMedicine = Medicine::create([
+            'medicine_box_id' => $this->box->id,
+            'reference_medicine_id' => $this->refMedicine->id,
+            'custom_trade_name' => 'Закончившийся Парацетамол',
+            'form' => 'таблетки',
+            'quantity' => 0.0,
+            'quantity_unit' => 'pill',
+            'expiration_date' => Carbon::now()->addMonths(6),
+            'status' => 'finished',
+        ]);
+
+        $course = IntakeCourse::create([
+            'profile_id' => $this->profile->id,
+            'medicine_id' => $emptyMedicine->id,
+            'title' => 'Курс без остатка',
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => '1 таб по схеме',
+            'start_date' => Carbon::today(),
+            'is_active' => true,
+        ]);
+
+        $log = IntakeLog::create([
+            'intake_course_id' => $course->id,
+            'medicine_id' => $emptyMedicine->id,
+            'scheduled_time' => Carbon::now(),
+            'status' => IntakeLogStatus::SCHEDULED,
+        ]);
+
+        // Приём с confirm_without_stock = true
+        $takeResponse = $this->actingAs($this->user)
+            ->postJson("/api/intake-logs/{$log->id}/take", [
+                'confirm_without_stock' => true,
+            ]);
+        $takeResponse->assertStatus(200);
+
+        $log->refresh();
+        $this->assertEquals(IntakeLogStatus::TAKEN, $log->status);
+        $this->assertEquals(0.0, (float) $log->deducted_quantity);
+
+        // Откат приёма (Undo)
+        $undoResponse = $this->actingAs($this->user)
+            ->postJson("/api/intake-logs/{$log->id}/undo");
+
+        $undoResponse->assertStatus(200);
+        $this->assertEquals(0.0, (float) $undoResponse->json('refunded_quantity'));
+        $this->assertEquals(0.0, (float) $undoResponse->json('remaining_quantity'));
+
+        $log->refresh();
+        $this->assertEquals(IntakeLogStatus::SCHEDULED, $log->status);
+
+        $emptyMedicine->refresh();
+        $this->assertEquals(0.0, (float) $emptyMedicine->quantity);
+        $statusVal = is_string($emptyMedicine->status) ? $emptyMedicine->status : $emptyMedicine->status->value;
+        $this->assertEquals('finished', $statusVal);
+
+        $this->assertDatabaseHas('notification_logs', [
+            'entity_type' => IntakeLog::class,
+            'entity_id' => $log->id,
+            'message' => "Приём препарата #{$log->id} отменён. Препарат был принят без списания остатка, складской баланс не изменялся.",
+        ]);
+    }
 }

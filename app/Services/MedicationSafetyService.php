@@ -86,7 +86,7 @@ class MedicationSafetyService
         }
 
         // 5. Проверка прямых межлекарственных взаимодействий (Drug-Drug Interactions, DDI)
-        $ddiResult = $this->checkDrugDrugInteractions($profile, $medicine, $inn, $atcCode, $tradeName);
+        $ddiResult = $this->checkDrugDrugInteractions($profile, $medicine, $inn, $atcCode, $tradeName, $unverifiedChecks);
         if (! empty($ddiResult['warnings'])) {
             $warnings = array_merge($warnings, $ddiResult['warnings']);
         }
@@ -487,17 +487,14 @@ class MedicationSafetyService
         ReferenceMedicine|Medicine $targetMedicine,
         string $targetInn,
         string $targetAtc,
-        string $targetTradeName
+        string $targetTradeName,
+        array &$unverifiedChecks = []
     ): array {
         $warnings = [];
         $hasCritical = false;
 
         $targetInnClean = mb_strtolower(trim($targetInn));
         $targetAtcClean = mb_strtoupper(trim($targetAtc));
-
-        if (empty($targetInnClean) && empty($targetAtcClean)) {
-            return ['warnings' => [], 'has_critical' => false];
-        }
 
         $activeCourses = $profile->intakeCourses()
             ->where('is_active', true)
@@ -507,6 +504,15 @@ class MedicationSafetyService
             })
             ->with(['medicine.referenceMedicine'])
             ->get();
+
+        if ($activeCourses->isEmpty()) {
+            return ['warnings' => [], 'has_critical' => false];
+        }
+
+        if (empty($targetInnClean) && empty($targetAtcClean)) {
+            $unverifiedChecks[] = "Клинический аудит межлекарственных взаимодействий (DDI) для препарата «{$targetTradeName}» не может быть гарантирован: отсутствуют верифицированные фармакологические коды МНН и АТХ.";
+            return ['warnings' => [], 'has_critical' => false];
+        }
 
         $targetMedicineId = $targetMedicine instanceof Medicine ? $targetMedicine->id : null;
 
@@ -525,6 +531,7 @@ class MedicationSafetyService
             $activeAtc = mb_strtoupper(trim($this->resolveAtcCode($activeMed)));
 
             if (empty($activeInn) && empty($activeAtc)) {
+                $unverifiedChecks[] = "Клинический аудит межлекарственных взаимодействий (DDI) для препарата «{$activeTradeName}» не может быть гарантирован: отсутствуют верифицированные фармакологические коды МНН и АТХ.";
                 continue;
             }
 
@@ -549,11 +556,13 @@ class MedicationSafetyService
             $isAceOrArb = fn ($inn, $atc) => str_starts_with($atc, 'C09A') || str_starts_with($atc, 'C09C')
                 || in_array($inn, ['эналаприл', 'лизиноприл', 'периндоприл', 'рамиприл', 'каптоприл', 'лозартан', 'валсартан', 'кандесартан', 'телмисартан']);
 
-            $isMacrolide = fn ($inn, $atc) => str_starts_with($atc, 'J01FA')
-                || in_array($inn, ['кларитромицин', 'эритромицин']);
+            // Мощные ингибиторы CYP3A4 среди макролидов
+            $isCyp3a4Macrolide = fn ($inn, $atc) => in_array($atc, ['J01FA01', 'J01FA09'], true)
+                || in_array($inn, ['кларитромицин', 'эритромицин'], true);
 
-            $isStatin = fn ($inn, $atc) => str_starts_with($atc, 'C10AA')
-                || in_array($inn, ['аторвастатин', 'симвастатин', 'розувастатин', 'ловастатин', 'правастатин']);
+            // Субстраты CYP3A4 среди статинов (высокий риск рабдомиолиза)
+            $isCyp3a4Statin = fn ($inn, $atc) => in_array($atc, ['C10AA01', 'C10AA02', 'C10AA05'], true)
+                || in_array($inn, ['аторвастатин', 'симвастатин', 'ловастатин'], true);
 
             // 1. НПВП + Антикоагулянты / Антиагреганты (Критический)
             if (($isNsaid($targetInnClean, $targetAtcClean) && $isAnticoagulant($activeInn, $activeAtc)) ||
@@ -582,10 +591,10 @@ class MedicationSafetyService
                 $warnings[] = "Предостережение DDI: совместный приём НПВП («{$targetTradeName}») и ингибиторов АПФ/БРА («{$activeTradeName}») нивелирует антигипертензивный эффект и повышает риск нефротоксичности/острой почечной недостаточности.";
             }
 
-            // 5. Макролиды + Статины (Предостережение)
-            if (($isMacrolide($targetInnClean, $targetAtcClean) && $isStatin($activeInn, $activeAtc)) ||
-                ($isStatin($targetInnClean, $targetAtcClean) && $isMacrolide($activeInn, $activeAtc))) {
-                $warnings[] = "Предостережение DDI: макролидные антибиотики («{$targetTradeName}») ингибируют метаболизм статинов («{$activeTradeName}») через CYP3A4, резко повышая риск миопатии и рабдомиолиза.";
+            // 5. Макролиды (ингибиторы CYP3A4) + Статины (субстраты CYP3A4) (Предостережение)
+            if (($isCyp3a4Macrolide($targetInnClean, $targetAtcClean) && $isCyp3a4Statin($activeInn, $activeAtc)) ||
+                ($isCyp3a4Statin($targetInnClean, $targetAtcClean) && $isCyp3a4Macrolide($activeInn, $activeAtc))) {
+                $warnings[] = "Предостережение DDI (фармакокинетическое): кларитромицин/эритромицин («{$targetTradeName}») блокирует метаболизм статина («{$activeTradeName}») через изофермент CYP3A4, повышая его концентрацию в крови и риск поражения мышц (миопатия, рабдомиолиз).";
             }
         }
 

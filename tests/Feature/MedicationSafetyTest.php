@@ -779,4 +779,260 @@ class MedicationSafetyTest extends TestCase
         $warnings = implode(' ', $response->json('data.warnings'));
         $this->assertStringNotContainsString('DDI', $warnings);
     }
+
+    /**
+     * DEF-23: DDI - Кларитромицин (ингибитор CYP3A4) + Аторвастатин (субстрат CYP3A4)
+     * вызывают специфическое предупреждение о блокаде CYP3A4 и риске рабдомиолиза.
+     */
+    public function test_ddi_warns_on_clarithromycin_and_atorvastatin(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $atorvastatinRef = ReferenceMedicine::create([
+            'trade_name' => 'Липримар',
+            'inn' => 'Аторвастатин',
+            'atc_code' => 'C10AA05',
+            'dosage_form' => 'таблетки',
+            'dosage' => '20 мг',
+            'pack_size' => 30,
+            'manufacturer' => 'Pfizer',
+            'country' => 'Германия',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+        $atorvastatinMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => $atorvastatinRef->id,
+            'quantity' => 30,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+        IntakeCourse::create([
+            'profile_id' => $this->elenaProfile->id,
+            'medicine_id' => $atorvastatinMed->id,
+            'title' => 'Статины',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => 'На ночь',
+            'is_active' => true,
+        ]);
+
+        $clarithromycinRef = ReferenceMedicine::create([
+            'trade_name' => 'Клацид',
+            'inn' => 'Кларитромицин',
+            'atc_code' => 'J01FA09',
+            'dosage_form' => 'таблетки',
+            'dosage' => '500 мг',
+            'pack_size' => 14,
+            'manufacturer' => 'Abbott',
+            'country' => 'Италия',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+
+        $response = $this->postJson('/api/medication-safety/check', [
+            'profile_id' => $this->elenaProfile->id,
+            'reference_medicine_id' => $clarithromycinRef->id,
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertEquals('conflict', $response->json('data.status'));
+        $this->assertFalse($response->json('data.is_safe'));
+        $warnings = implode(' ', $response->json('data.warnings'));
+        $this->assertStringContainsString('CYP3A4', $warnings);
+        $this->assertStringContainsString('рабдомиолиз', $warnings);
+    }
+
+    /**
+     * DEF-23: DDI - Азитромицин (J01FA10, не ингибирует CYP3A4) + Аторвастатин
+     * НЕ должны вызывать предупреждение о блокаде CYP3A4.
+     */
+    public function test_ddi_clean_on_azithromycin_and_atorvastatin(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $atorvastatinRef = ReferenceMedicine::create([
+            'trade_name' => 'Аторвастатин-Тева',
+            'inn' => 'Аторвастатин',
+            'atc_code' => 'C10AA05',
+            'dosage_form' => 'таблетки',
+            'dosage' => '10 мг',
+            'pack_size' => 30,
+            'manufacturer' => 'Teva',
+            'country' => 'Израиль',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+        $atorvastatinMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => $atorvastatinRef->id,
+            'quantity' => 30,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+        IntakeCourse::create([
+            'profile_id' => $this->elenaProfile->id,
+            'medicine_id' => $atorvastatinMed->id,
+            'title' => 'Статины вечер',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => 'На ночь',
+            'is_active' => true,
+        ]);
+
+        $azithromycinRef = ReferenceMedicine::create([
+            'trade_name' => 'Сумамед',
+            'inn' => 'Азитромицин',
+            'atc_code' => 'J01FA10',
+            'dosage_form' => 'капсулы',
+            'dosage' => '500 мг',
+            'pack_size' => 3,
+            'manufacturer' => 'Pliva',
+            'country' => 'Хорватия',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+
+        $response = $this->postJson('/api/medication-safety/check', [
+            'profile_id' => $this->elenaProfile->id,
+            'reference_medicine_id' => $azithromycinRef->id,
+        ]);
+
+        $response->assertStatus(200);
+        $warnings = implode(' ', $response->json('data.warnings'));
+        $this->assertStringNotContainsString('CYP3A4', $warnings);
+        $this->assertStringNotContainsString('рабдомиолиз', $warnings);
+    }
+
+    /**
+     * DEF-23: DDI - Кларитромицин + Розувастатин (C10AA07, метаболизм CYP2C9, не CYP3A4)
+     * НЕ должны вызывать предупреждение о блокаде CYP3A4.
+     */
+    public function test_ddi_clean_on_clarithromycin_and_rosuvastatin(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $rosuvastatinRef = ReferenceMedicine::create([
+            'trade_name' => 'Крестор',
+            'inn' => 'Розувастатин',
+            'atc_code' => 'C10AA07',
+            'dosage_form' => 'таблетки',
+            'dosage' => '10 мг',
+            'pack_size' => 28,
+            'manufacturer' => 'AstraZeneca',
+            'country' => 'Великобритания',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+        $rosuvastatinMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => $rosuvastatinRef->id,
+            'quantity' => 28,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+        IntakeCourse::create([
+            'profile_id' => $this->elenaProfile->id,
+            'medicine_id' => $rosuvastatinMed->id,
+            'title' => 'Розувастатин',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => 'Вечером',
+            'is_active' => true,
+        ]);
+
+        $clarithromycinRef = ReferenceMedicine::create([
+            'trade_name' => 'Клацид СР',
+            'inn' => 'Кларитромицин',
+            'atc_code' => 'J01FA09',
+            'dosage_form' => 'таблетки',
+            'dosage' => '500 мг',
+            'pack_size' => 7,
+            'manufacturer' => 'Abbott',
+            'country' => 'Италия',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+
+        $response = $this->postJson('/api/medication-safety/check', [
+            'profile_id' => $this->elenaProfile->id,
+            'reference_medicine_id' => $clarithromycinRef->id,
+        ]);
+
+        $response->assertStatus(200);
+        $warnings = implode(' ', $response->json('data.warnings'));
+        $this->assertStringNotContainsString('CYP3A4', $warnings);
+        $this->assertStringNotContainsString('рабдомиолиз', $warnings);
+    }
+
+    /**
+     * DEF-24: Fail-closed обработка unverifiable в DDI:
+     * Назначение кастомного препарата без МНН и АТХ при активном курсе Варфарина
+     * возвращает статус 'unverifiable', is_safe = false и запись в unverified_checks.
+     */
+    public function test_ddi_returns_unverifiable_when_custom_medicine_without_inn_checked_against_active_warfarin(): void
+    {
+        Sanctum::actingAs($this->user);
+
+        $warfarinRef = ReferenceMedicine::create([
+            'trade_name' => 'Варфарин Никомед',
+            'inn' => 'Варфарин',
+            'atc_code' => 'B01AA03',
+            'dosage_form' => 'таблетки',
+            'dosage' => '2.5 мг',
+            'pack_size' => 50,
+            'manufacturer' => 'Takeda',
+            'country' => 'Дания',
+            'is_prescription' => true,
+            'status' => 'active',
+        ]);
+        $warfarinMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => $warfarinRef->id,
+            'quantity' => 50,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+        IntakeCourse::create([
+            'profile_id' => $this->elenaProfile->id,
+            'medicine_id' => $warfarinMed->id,
+            'title' => 'Антикоагулянт Варфарин',
+            'start_date' => now()->toDateString(),
+            'end_date' => now()->addMonth()->toDateString(),
+            'dosage_quantity' => 1.0,
+            'dosage_instruction' => 'Строго по схеме',
+            'is_active' => true,
+        ]);
+
+        // Ручной ввод препарата без привязки к ГРЛС и без МНН/АТХ
+        $customMed = Medicine::create([
+            'medicine_box_id' => $this->homeBox->id,
+            'reference_medicine_id' => null,
+            'custom_trade_name' => 'Травяной сбор бабушки',
+            'form' => 'сбор',
+            'quantity' => 1,
+            'quantity_unit' => 'pill',
+            'expiration_date' => now()->addYear()->toDateString(),
+            'status' => 'active',
+        ]);
+
+        $response = $this->postJson('/api/medication-safety/check', [
+            'profile_id' => $this->elenaProfile->id,
+            'medicine_id' => $customMed->id,
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertEquals('unverifiable', $response->json('data.status'));
+        $this->assertFalse($response->json('data.is_safe'));
+        $unverified = implode(' ', $response->json('data.unverified_checks'));
+        $this->assertStringContainsString('DDI', $unverified);
+        $this->assertStringContainsString('МНН и АТХ', $unverified);
+    }
 }

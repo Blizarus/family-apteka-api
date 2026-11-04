@@ -107,8 +107,8 @@ class ApiDocumentationTest extends TestCase
         $this->assertContains('baseUrl', $varKeys);
         $this->assertContains('token', $varKeys);
 
-        // Проверка 11 папок функциональных модулей
-        $this->assertCount(11, $json['item']);
+        // Проверка 12 папок (11 функциональных модулей + 12. Teardown)
+        $this->assertCount(12, $json['item']);
     }
 
     /**
