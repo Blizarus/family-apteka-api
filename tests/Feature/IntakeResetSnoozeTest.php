@@ -27,6 +27,7 @@ class IntakeResetSnoozeTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Carbon::setTestNow('2026-11-10 07:00:00');
 
         $this->user = User::factory()->create([
             'email' => 'reset_snooze@family.test',
@@ -111,5 +112,11 @@ class IntakeResetSnoozeTest extends TestCase
 
         $res = $this->postJson("/api/intake-logs/{$this->intakeLog->id}/reset-snooze");
         $res->assertStatus(403);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 }

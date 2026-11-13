@@ -13,6 +13,15 @@
     RewriteCond %{HTTP:x-xsrf-token} .
     RewriteRule .* - [E=HTTP_X_XSRF_TOKEN:%{HTTP:X-XSRF-Token}]
 
+    # Exclude Let's Encrypt ACME challenge from redirect (DEF-13 / SSL renewal)
+    RewriteCond %{REQUEST_URI} ^/\.well-known/
+    RewriteRule .* - [L]
+
+    # Force HTTPS redirect if request is plain HTTP (supporting Nginx reverse proxy headers)
+    RewriteCond %{HTTPS} !=on
+    RewriteCond %{HTTP:X-Forwarded-Proto} !https
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
     # Redirect Trailing Slashes If Not A Folder...
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_URI} (.+)/$

@@ -15,12 +15,8 @@
   },
   "servers": [
     {
-      "url": "http://e340043kek.temp.swtest.ru/api",
-      "description": "Боевой стенд HTTP (SpaceWeb Remote Stand - Direct HTTP)"
-    },
-    {
-      "url": "https://e340043kek.temp.swtest.ru/api",
-      "description": "Удаленный рабочий сервер HTTPS (SpaceWeb Remote Stand)"
+      "url": "https://blizaus.online/api",
+      "description": "Боевой защищенный сервер HTTPS (Production - Let's Encrypt TLS)"
     },
     {
       "url": "http://127.0.0.1:8000/api",

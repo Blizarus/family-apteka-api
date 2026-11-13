@@ -22,6 +22,7 @@ class IntakeTimezoneTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Carbon::setTestNow('2026-11-10 00:00:00');
 
         $this->userMoscow = User::factory()->create([
             'email' => 'moscow@family.test',
@@ -234,5 +235,11 @@ class IntakeTimezoneTest extends TestCase
             'intake_course_id' => $courseIdVl,
             'scheduled_time' => '2026-11-09 15:00:00',
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 }
