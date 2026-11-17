@@ -7,6 +7,7 @@ $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 $kernel->bootstrap();
 
 use App\Models\User;
+use App\Models\Medicine;
 use App\Models\NotificationLog;
 use App\NotificationLogType;
 use Illuminate\Support\Facades\Artisan;
@@ -20,6 +21,9 @@ if (!$u) {
     $u->password = Hash::make('password');
     $u->save();
 }
+
+// Восстанавливаем остаток тестового препарата для повторяемых тестов списания (Quick Take / Take Log)
+Medicine::where('id', 1)->where('quantity', '<=', 2)->update(['quantity' => 16.0]);
 
 // Удаляем временных пользователей от предыдущих прогонов
 User::where('email', 'like', 'new_user%')->delete();
