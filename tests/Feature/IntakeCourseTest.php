@@ -36,6 +36,7 @@ class IntakeCourseTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Carbon::setTestNow(Carbon::parse('2026-11-18 12:00:00', 'Europe/Moscow'));
 
         $this->user = User::create([
             'email' => 'anna@family.test',
@@ -96,6 +97,12 @@ class IntakeCourseTest extends TestCase
             'expiration_date' => Carbon::now()->addYear()->toDateString(),
             'status' => MedicineStatus::ACTIVE,
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     public function test_user_can_create_intake_course_and_generate_14_days_logs(): void

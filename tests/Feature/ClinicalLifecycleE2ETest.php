@@ -33,6 +33,18 @@ class ClinicalLifecycleE2ETest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Carbon::setTestNow(Carbon::parse('2026-11-18 12:00:00', 'Europe/Moscow'));
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
+    }
+
     public function test_e2e_clinical_lifecycle_from_registration_to_adherence_report(): void
     {
         // -------------------------------------------------------------

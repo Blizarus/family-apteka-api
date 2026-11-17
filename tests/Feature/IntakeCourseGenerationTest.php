@@ -33,6 +33,7 @@ class IntakeCourseGenerationTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Carbon::setTestNow(Carbon::parse('2026-11-18 12:00:00', 'Europe/Moscow'));
 
         // 1. Авторизованный пользователь (Анна)
         $this->user = User::create([
@@ -78,6 +79,12 @@ class IntakeCourseGenerationTest extends TestCase
             'expiration_date' => Carbon::now()->addYear()->toDateString(),
             'status' => MedicineStatus::ACTIVE,
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     /**
