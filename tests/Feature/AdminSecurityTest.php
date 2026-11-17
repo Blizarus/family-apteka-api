@@ -229,4 +229,43 @@ class AdminSecurityTest extends TestCase
         $deleteRes->assertStatus(200);
         $this->assertDatabaseMissing('reference_medicines', ['id' => $medId]);
     }
+
+    /**
+     * DEF-42: При admin_internal_only = true администратор с внешнего IP получает 403 Forbidden.
+     */
+    public function test_admin_with_external_ip_is_forbidden_when_admin_internal_only_is_true(): void
+    {
+        config(['app.admin_internal_only' => true]);
+
+        Sanctum::actingAs($this->adminUser);
+
+        $response = $this->withServerVariables([
+            'REMOTE_ADDR' => '198.51.100.42',
+        ])->getJson('/api/admin/users');
+
+        $response->assertStatus(403);
+        $this->assertStringContainsString('внутренней', $response->json('message'));
+    }
+
+    /**
+     * DEF-45: Заблокированный пользователь с активным Sanctum-токеном получает 403 на защищенных роутах.
+     */
+    public function test_active_sanctum_token_is_rejected_when_user_is_blocked(): void
+    {
+        $token = $this->regularUser->createToken('test-device')->plainTextToken;
+
+        $resBefore = $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->getJson('/api/auth/me');
+        $resBefore->assertStatus(200);
+
+        // Блокируем пользователя
+        $this->regularUser->update(['is_blocked' => true]);
+
+        // После блокировки любой защищенный эндпоинт auth:sanctum обязан возвращать 403
+        $resAfter = $this->withHeader('Authorization', 'Bearer ' . $token)
+            ->getJson('/api/auth/me');
+
+        $resAfter->assertStatus(403);
+        $this->assertStringContainsString('заблокирована', $resAfter->json('message'));
+    }
 }

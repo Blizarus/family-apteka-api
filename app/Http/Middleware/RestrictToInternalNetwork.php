@@ -26,24 +26,50 @@ class RestrictToInternalNetwork
     {
         $user = $request->user();
         $clientIp = $request->ip();
+        $isInternal = $this->isInternalIp($clientIp);
+        $adminInternalOnly = (bool) config('app.admin_internal_only', env('ADMIN_INTERNAL_ONLY', false));
 
-        // 1. Авторизованный администратор имеет доступ с любых IP, включая мобильные сети 4G/5G (DEF-05)
-        if ($user && $user->is_admin) {
+        // 1. Режим строгой внутренней сети (ADR-001: ADMIN_INTERNAL_ONLY = true)
+        if ($adminInternalOnly) {
+            if (! $isInternal) {
+                Log::warning("Блокировка доступа к панели администрирования из внешней сети (ADMIN_INTERNAL_ONLY=true): IP {$clientIp}");
+                return response()->json([
+                    'message' => 'Доступ запрещен: подключение к административным ресурсам разрешено только из доверенной внутренней сети (строгая IP-фильтрация).',
+                    'client_ip' => $clientIp,
+                ], 403);
+            }
+
+            if (! $user || ! $user->is_admin) {
+                return response()->json([
+                    'message' => 'Доступ запрещен: требуются права администратора системы.',
+                ], 403);
+            }
+
             return $next($request);
         }
 
-        // 2. Для неаутентифицированных или обычных пользователей — строгая IP-фильтрация доверенной сети
-        if (! $this->isInternalIp($clientIp)) {
-            Log::warning("Попытка несанкционированного доступа к панели администрирования из внешней сети: IP {$clientIp}, URL: {$request->fullUrl()}");
+        // 2. Режим гибридного доступа (ADR-001 / DEF-05: ADMIN_INTERNAL_ONLY = false)
+        if ($user && $user->is_admin) {
+            if (! $isInternal) {
+                Log::info('[SECURITY] Вход администратора из внешней/мобильной сети', [
+                    'ip' => $clientIp,
+                    'user_id' => $user->id,
+                    'route' => $request->path(),
+                    'user_agent' => $request->userAgent(),
+                    'timestamp' => now()->toIso8601String(),
+                ]);
+            }
+            return $next($request);
+        }
 
+        // 3. Для неаутентифицированных пользователей или не-администраторов
+        if (! $isInternal) {
+            Log::warning("Попытка несанкционированного доступа к панели администрирования из внешней сети: IP {$clientIp}");
             return response()->json([
                 'message' => 'Доступ запрещен: подключение к административным ресурсам разрешено только из доверенной внутренней сети (строгая IP-фильтрация).',
                 'client_ip' => $clientIp,
             ], 403);
         }
-
-        // 3. Запрос из внутренней сети без роли администратора
-        Log::warning("Попытка доступа к панели администрирования пользователем без роли администратора: User ID " . ($user?->id ?? 'guest'));
 
         return response()->json([
             'message' => 'Доступ запрещен: требуются права администратора системы.',

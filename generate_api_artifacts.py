@@ -295,21 +295,42 @@ def build_openapi_spec():
                 "SafetyReport": {
                     "type": "object",
                     "properties": {
-                        "safe": {"type": "boolean", "example": False},
+                        "status": {
+                            "type": "string",
+                            "enum": ["safe", "conflict", "unverifiable"],
+                            "example": "conflict"
+                        },
+                        "is_safe": {"type": "boolean", "example": False},
+                        "has_critical": {"type": "boolean", "example": True},
                         "warnings": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "example": [
+                                "Критический конфликт DDI: совместный приём НПВП («Ибупрофен») и антикоагулянта/антиагреганта («Варфарин») резко потенцирует риск профузных желудочно-кишечных кровотечений."
+                            ]
+                        },
+                        "interactions": {
                             "type": "array",
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "severity": {"type": "string", "enum": ["critical", "warning", "info"], "example": "critical"},
-                                    "type": {"type": "string", "example": "duplicate_inn"},
-                                    "message": {"type": "string", "example": "Внимание! Обнаружено дублирование действующего вещества: Ибупрофен."}
+                                    "target_medicine": {"type": "string", "example": "Ибупрофен"},
+                                    "interacting_medicine": {"type": "string", "example": "Варфарин"},
+                                    "severity": {"type": "string", "enum": ["contraindicated", "warning", "info"], "example": "contraindicated"},
+                                    "description": {"type": "string", "example": "Резкое потенцирование риска желудочно-кишечных кровотечений."},
+                                    "source": {"type": "string", "example": "Минздрав РФ / ГРЛС / FDA"}
                                 }
                             }
                         },
-                        "checked_at": {"type": "string", "format": "date-time", "example": "2026-10-29T12:00:00Z"},
-                        "profile": {"type": "object"},
-                        "target": {"type": "object"}
+                        "unverified_checks": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "example": []
+                        },
+                        "disclaimer": {
+                            "type": "string",
+                            "example": "Автоматическая проверка взаимодействия лекарств носит информационный характер и не заменяет консультацию врача или провизора. При наличии сомнений проконсультируйтесь со специалистом."
+                        }
                     }
                 },
                 "ErrorResponse": {

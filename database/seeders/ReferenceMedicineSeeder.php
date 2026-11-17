@@ -12,6 +12,18 @@ class ReferenceMedicineSeeder extends Seeder
      */
     public function run(): void
     {
+        $jsonPath = database_path('data/grls_registry_sample.json');
+        if (file_exists($jsonPath)) {
+            $grlsItems = json_decode(file_get_contents($jsonPath), true) ?: [];
+            foreach ($grlsItems as $item) {
+                ReferenceMedicine::updateOrCreate(
+                    ['barcode' => $item['barcode']],
+                    $item
+                );
+            }
+            return;
+        }
+
         $items = [
             [
                 'trade_name' => 'Ибупрофен',

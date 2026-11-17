@@ -31,8 +31,8 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // 1. Основной пользователь (хеширование пароля через Argon2id, пароль из .env или случайный)
-        $annaPassword = env('SEED_ANNA_PASSWORD', Str::random(16));
+        // 1. Основной пользователь (хеширование пароля через Argon2id, дефолт для демо: 'password')
+        $annaPassword = env('SEED_ANNA_PASSWORD', 'password');
         $user = User::create([
             'email' => 'anna@family.test',
             'password' => Hash::make($annaPassword),
@@ -42,8 +42,8 @@ class DatabaseSeeder extends Seeder
             'email_verified_at' => now(),
         ]);
 
-        // 1.1. Администратор безопасности ИС (ролевой доступ RBAC согласно ЛР 2)
-        $adminPassword = env('SEED_ADMIN_PASSWORD', Str::random(16));
+        // 1.1. Администратор безопасности ИС (ролевой доступ RBAC согласно ЛР 2, дефолт: 'admin123')
+        $adminPassword = env('SEED_ADMIN_PASSWORD', 'admin123');
         User::create([
             'email' => 'admin@family.test',
             'password' => Hash::make($adminPassword),

@@ -112,6 +112,28 @@ class ApiDocumentationTest extends TestCase
     }
 
     /**
+     * Проверка соответствия схемы SafetyReport реальным полям MedicationSafetyService (DEF-38).
+     */
+    public function test_safety_report_schema_matches_cds_service(): void
+    {
+        $response = $this->get('/openapi.json');
+        $response->assertStatus(200);
+        $json = json_decode($response->getContent(), true);
+
+        $this->assertArrayHasKey('SafetyReport', $json['components']['schemas']);
+        $props = $json['components']['schemas']['SafetyReport']['properties'];
+
+        $this->assertArrayHasKey('status', $props);
+        $this->assertEquals(['safe', 'conflict', 'unverifiable'], $props['status']['enum']);
+        $this->assertArrayHasKey('is_safe', $props);
+        $this->assertArrayHasKey('has_critical', $props);
+        $this->assertArrayHasKey('warnings', $props);
+        $this->assertArrayHasKey('interactions', $props);
+        $this->assertArrayHasKey('unverified_checks', $props);
+        $this->assertArrayHasKey('disclaimer', $props);
+    }
+
+    /**
      * Проверка наличия файла спецификации по ГОСТ 7.32.
      */
     public function test_gost_markdown_specification_exists(): void

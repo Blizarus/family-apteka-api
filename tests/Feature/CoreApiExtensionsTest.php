@@ -359,9 +359,9 @@ class CoreApiExtensionsTest extends TestCase
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $notifA->id);
 
-        // Попытка пользователя B удалить уведомление пользователя A (IDOR -> 403)
+        // Попытка пользователя B удалить уведомление пользователя A (DEF-47: 404 без утечки оракула перебора)
         $idorDeleteResponse = $this->actingAs($userB)->deleteJson("/api/notifications/{$notifA->id}");
-        $idorDeleteResponse->assertStatus(403);
+        $idorDeleteResponse->assertStatus(404);
         $this->assertDatabaseHas('notification_logs', ['id' => $notifA->id]);
 
         // Пользователь A успешно удаляет своё уведомление (200)

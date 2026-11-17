@@ -144,6 +144,14 @@ class AccountDeletionAndExportTest extends TestCase
         $this->assertGreaterThan(0, DB::table('notification_logs')->where('user_id', $this->user->id)->count());
         $this->assertGreaterThan(0, DB::table('intake_logs')->where('intake_course_id', $this->course->id)->count());
 
+        DB::table('idempotency_keys')->insert([
+            'user_id' => $this->user->id,
+            'key' => 'test-idemp-key',
+            'request_hash' => 'hash123',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         $response = $this->actingAs($this->user)->deleteJson('/api/auth/account', [
             'current_password' => 'password123',
         ]);
@@ -162,6 +170,15 @@ class AccountDeletionAndExportTest extends TestCase
 
         // 4) Журнал приёмов удален в рамках права на забвение 152-ФЗ
         $this->assertEquals(0, DB::table('intake_logs')->where('intake_course_id', $this->course->id)->count(), 'Медицинские логи приёма должны быть удалены!');
+
+        // 5) Курсы приёма удалены (DEF-40)
+        $this->assertDatabaseMissing('intake_courses', ['id' => $this->course->id]);
+
+        // 6) Лекарства в аптечках владельца удалены (DEF-40)
+        $this->assertDatabaseMissing('medicines', ['id' => $this->medicine->id]);
+
+        // 7) Ключи идемпотентности удалены (DEF-40)
+        $this->assertDatabaseMissing('idempotency_keys', ['user_id' => $this->user->id]);
     }
 
     /**

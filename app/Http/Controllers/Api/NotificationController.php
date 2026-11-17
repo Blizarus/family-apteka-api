@@ -27,15 +27,12 @@ class NotificationController extends Controller
 
     /**
      * Удаление уведомления.
-     * Защита от IDOR: пользователь может удалять только свои уведомления.
+     * Защита от IDOR и ликвидация оракула перебора (DEF-47):
+     * Поиск строго в скоупе текущего пользователя -> 404 для чужих и несуществующих ID.
      */
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $notification = NotificationLog::findOrFail($id);
-
-        if ($notification->user_id !== $request->user()->id) {
-            return response()->json(['message' => 'Доступ запрещен (IDOR).'], 403);
-        }
+        $notification = $request->user()->notificationLogs()->findOrFail($id);
 
         $notification->delete();
 

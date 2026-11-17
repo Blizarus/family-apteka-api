@@ -240,24 +240,31 @@ class AuthController extends Controller
             // 3. Удаление всех логов уведомлений пользователя
             $user->notificationLogs()->delete();
 
-            // 4. Очистка персональных медицинских логов приёма (152-ФЗ ст. 21 / право на забвение)
+            // 4. Очистка персональных медицинских логов и курсов приёма (152-ФЗ ст. 21 / право на забвение)
             $profileIds = $user->profiles()->pluck('id');
             $courseIds = \App\Models\IntakeCourse::whereIn('profile_id', $profileIds)->pluck('id');
             \App\Models\IntakeLog::whereIn('intake_course_id', $courseIds)->delete();
+            \App\Models\IntakeCourse::whereIn('id', $courseIds)->delete();
 
-            // 5. Soft-delete профилей членов семьи
-            $user->profiles()->delete();
-
-            // 6. Soft-delete аптечек, где пользователь является владельцем
+            // 5. Очистка препаратов и аптечек, где пользователь является владельцем
             $ownerBoxes = $user->medicineBoxes()
                 ->wherePivot('role', MedicineBoxUserRole::OWNER)
                 ->get();
 
+            \App\Models\Medicine::whereIn('medicine_box_id', $ownerBoxes->pluck('id'))->delete();
+
             foreach ($ownerBoxes as $box) {
                 $box->delete();
             }
+            $user->medicineBoxes()->detach();
 
-            // 7. Soft-delete самой учетной записи
+            // 6. Очистка ключей идемпотентности
+            \Illuminate\Support\Facades\DB::table('idempotency_keys')->where('user_id', $user->id)->delete();
+
+            // 7. Soft-delete профилей членов семьи
+            $user->profiles()->delete();
+
+            // 8. Soft-delete самой учетной записи
             $user->delete();
         });
 

@@ -17,7 +17,8 @@
     RewriteCond %{REQUEST_URI} ^/\.well-known/
     RewriteRule .* - [L]
 
-    # Force HTTPS redirect if request is plain HTTP (supporting Nginx reverse proxy headers)
+    # Force HTTPS redirect for custom domain only, exclude temporary hosting domain (*.temp.swtest.ru)
+    RewriteCond %{HTTP_HOST} !temp\.swtest\.ru$ [NC]
     RewriteCond %{HTTPS} !=on
     RewriteCond %{HTTP:X-Forwarded-Proto} !https
     RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]

@@ -152,10 +152,12 @@ class IntakeLogController extends Controller
                 ];
             }
 
-            // Идет обработка первым потоком -> ожидаем завершения
+            // Идет обработка первым потоком -> немедленно возвращаем 409 с Retry-After без блокирующего spin-lock (DEF-43)
             return [
                 'action' => 'response',
-                'response' => $this->waitForIdempotentResponse($userId, $key, $requestHash),
+                'response' => response()->json([
+                    'message' => 'Запрос с данным ключом идемпотентности уже обрабатывается. Повторите попытку через 1 секунду.',
+                ], 409, ['Retry-After' => '1']),
             ];
         }
 
@@ -174,52 +176,43 @@ class IntakeLogController extends Controller
             return ['action' => 'process'];
         } catch (\Illuminate\Database\QueryException $e) {
             if ($e->getCode() == 23000 || str_contains($e->getMessage(), '1062') || str_contains($e->getMessage(), 'idempotency_keys')) {
+                $record = DB::table('idempotency_keys')
+                    ->where('user_id', $userId)
+                    ->where('key', $key)
+                    ->first();
+
+                if ($record) {
+                    if ($record->request_hash !== $requestHash) {
+                        return [
+                            'action' => 'response',
+                            'response' => response()->json([
+                                'message' => 'Идемпотентный ключ уже использован с другим телом запроса.',
+                            ], 422),
+                        ];
+                    }
+
+                    if ($record->response_code !== null) {
+                        return [
+                            'action' => 'response',
+                            'response' => response()->json(
+                                json_decode($record->response_body, true),
+                                $record->response_code
+                            ),
+                        ];
+                    }
+                }
+
                 return [
                     'action' => 'response',
-                    'response' => $this->waitForIdempotentResponse($userId, $key, $requestHash),
+                    'response' => response()->json([
+                        'message' => 'Запрос с данным ключом идемпотентности уже обрабатывается. Повторите попытку через 1 секунду.',
+                    ], 409, ['Retry-After' => '1']),
                 ];
             }
             throw $e;
         }
     }
 
-    /**
-     * Ожидание завершения конкурирующей транзакции для того же ключа идемпотентности.
-     * Опрашивает БД каждые 50 мс с таймаутом до 4 секунд.
-     * Все 10 параллельных потоков гарантированно получают HTTP 200 с идентичным ответом.
-     */
-    protected function waitForIdempotentResponse(int $userId, string $key, string $requestHash, int $timeoutSeconds = 4): JsonResponse
-    {
-        $startTime = microtime(true);
-        while ((microtime(true) - $startTime) < $timeoutSeconds) {
-            usleep(50000); // 50 мс
-            $record = DB::table('idempotency_keys')
-                ->where('user_id', $userId)
-                ->where('key', $key)
-                ->first();
-
-            if (! $record) {
-                continue;
-            }
-
-            if ($record->request_hash !== $requestHash) {
-                return response()->json([
-                    'message' => 'Идемпотентный ключ уже использован с другим телом запроса.',
-                ], 422);
-            }
-
-            if ($record->response_code !== null) {
-                return response()->json(
-                    json_decode($record->response_body, true),
-                    $record->response_code
-                );
-            }
-        }
-
-        return response()->json([
-            'message' => 'Время ожидания обработки идемпотентного запроса истекло.',
-        ], 409);
-    }
 
     /**
      * Проверка существующего ключа идемпотентности (совместимость).
@@ -850,7 +843,8 @@ class IntakeLogController extends Controller
 
         $intakeLog = IntakeLog::with(['intakeCourse.profile', 'intakeCourse.medicine', 'medicine'])->findOrFail($id);
 
-        if (! $userProfileIds->contains($intakeLog->intakeCourse->profile_id)) {
+        $profileId = $intakeLog->intakeCourse?->profile_id;
+        if (! $profileId || ! $userProfileIds->contains($profileId)) {
             return response()->json(['message' => 'Доступ запрещен (IDOR).'], 403);
         }
 

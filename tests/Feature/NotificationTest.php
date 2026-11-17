@@ -70,7 +70,8 @@ class NotificationTest extends TestCase
         $response = $this->actingAs($this->stranger)
             ->deleteJson("/api/notifications/{$this->notification->id}");
 
-        $response->assertStatus(403);
+        // DEF-47: Ликвидация оракула перебора (чужие записи возвращают 404 так же, как несуществующие)
+        $response->assertStatus(404);
 
         $this->assertDatabaseHas('notification_logs', [
             'id' => $this->notification->id,

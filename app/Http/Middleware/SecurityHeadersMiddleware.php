@@ -20,8 +20,9 @@ class SecurityHeadersMiddleware
             return $next($request);
         }
 
-        // 2. Редирект с HTTP на HTTPS на проде (если Nginx/панель хостинга его не выполняет)
-        if (! $request->isSecure() && ! app()->environment('local', 'testing')) {
+        // 2. Редирект с HTTP на HTTPS на проде (исключая технический домен хостинга temp.swtest.ru без SSL)
+        $host = $request->getHost();
+        if (! str_ends_with($host, 'temp.swtest.ru') && ! $request->isSecure() && ! app()->environment('local', 'testing')) {
             return redirect()->secure($request->getRequestUri(), 301);
         }
 

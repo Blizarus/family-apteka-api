@@ -15,8 +15,12 @@
   },
   "servers": [
     {
-      "url": "https://blizaus.online/api",
-      "description": "Боевой защищенный сервер HTTPS (Production - Let's Encrypt TLS)"
+      "url": "http://e340043kek.temp.swtest.ru/api",
+      "description": "Боевой стенд HTTP (SpaceWeb Remote Stand - Direct HTTP)"
+    },
+    {
+      "url": "https://e340043kek.temp.swtest.ru/api",
+      "description": "Удаленный рабочий сервер HTTPS (SpaceWeb Remote Stand)"
     },
     {
       "url": "http://127.0.0.1:8000/api",
@@ -663,45 +667,75 @@
       "SafetyReport": {
         "type": "object",
         "properties": {
-          "safe": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "safe",
+              "conflict",
+              "unverifiable"
+            ],
+            "example": "conflict"
+          },
+          "is_safe": {
             "type": "boolean",
             "example": false
+          },
+          "has_critical": {
+            "type": "boolean",
+            "example": true
           },
           "warnings": {
             "type": "array",
             "items": {
+              "type": "string"
+            },
+            "example": [
+              "Критический конфликт DDI: совместный приём НПВП («Ибупрофен») и антикоагулянта/антиагреганта («Варфарин») резко потенцирует риск профузных желудочно-кишечных кровотечений."
+            ]
+          },
+          "interactions": {
+            "type": "array",
+            "items": {
               "type": "object",
               "properties": {
+                "target_medicine": {
+                  "type": "string",
+                  "example": "Ибупрофен"
+                },
+                "interacting_medicine": {
+                  "type": "string",
+                  "example": "Варфарин"
+                },
                 "severity": {
                   "type": "string",
                   "enum": [
-                    "critical",
+                    "contraindicated",
                     "warning",
                     "info"
                   ],
-                  "example": "critical"
+                  "example": "contraindicated"
                 },
-                "type": {
+                "description": {
                   "type": "string",
-                  "example": "duplicate_inn"
+                  "example": "Резкое потенцирование риска желудочно-кишечных кровотечений."
                 },
-                "message": {
+                "source": {
                   "type": "string",
-                  "example": "Внимание! Обнаружено дублирование действующего вещества: Ибупрофен."
+                  "example": "Минздрав РФ / ГРЛС / FDA"
                 }
               }
             }
           },
-          "checked_at": {
+          "unverified_checks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": []
+          },
+          "disclaimer": {
             "type": "string",
-            "format": "date-time",
-            "example": "2026-10-29T12:00:00Z"
-          },
-          "profile": {
-            "type": "object"
-          },
-          "target": {
-            "type": "object"
+            "example": "Автоматическая проверка взаимодействия лекарств носит информационный характер и не заменяет консультацию врача или провизора. При наличии сомнений проконсультируйтесь со специалистом."
           }
         }
       },

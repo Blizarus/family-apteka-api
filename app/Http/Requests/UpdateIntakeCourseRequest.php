@@ -36,7 +36,7 @@ class UpdateIntakeCourseRequest extends FormRequest
             'dosage_instruction' => ['sometimes', 'string', 'max:255'],
             'start_date' => ['sometimes', 'date'],
             'end_date' => ['nullable', 'date', $startDateRule],
-            'notes' => ['nullable', 'string'],
+            'notes' => ['nullable', 'string', 'max:1000'],
             'is_active' => ['sometimes', 'boolean'],
         ];
     }

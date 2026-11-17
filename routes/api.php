@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\ReferenceMedicineController;
 use App\Http\Controllers\Api\ReportController;
+use App\Http\Middleware\EnsureUserNotBlocked;
 use App\Http\Middleware\RestrictToInternalNetwork;
 use Illuminate\Support\Facades\Route;
 
@@ -40,7 +41,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:login');
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:login');
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', EnsureUserNotBlocked::class])->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::put('/password', [AuthController::class, 'updatePassword']);
@@ -50,7 +51,7 @@ Route::prefix('auth')->group(function () {
 });
 
 // Защищенные ресурсы приложения
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', EnsureUserNotBlocked::class])->group(function () {
     // 1. Сводный дашборд пользователя
     Route::get('/dashboard', [DashboardController::class, 'index']);
 
@@ -101,7 +102,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 // 10. Панель администрирования (ЛР 2, Таблица 1, строка 5):
 // Строгая IP-фильтрация (только внутренняя сеть) + RBAC проверка роли администратора
-Route::prefix('admin')->middleware(['auth:sanctum', RestrictToInternalNetwork::class])->group(function () {
+Route::prefix('admin')->middleware(['auth:sanctum', EnsureUserNotBlocked::class, RestrictToInternalNetwork::class])->group(function () {
     // Управление пользователями и блокировка
     Route::get('/users', [AdminController::class, 'users']);
     Route::post('/users/{user}/block', [AdminController::class, 'toggleBlockUser']);

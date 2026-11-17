@@ -150,7 +150,7 @@ class MedicineController extends Controller
             'low_stock_threshold' => ['sometimes', 'nullable', 'numeric', 'min:0'],
             'storage_condition' => ['sometimes', 'nullable', new Enum(StorageCondition::class)],
             'status' => ['sometimes', 'required', new Enum(MedicineStatus::class)],
-            'notes' => ['sometimes', 'nullable', 'string'],
+            'notes' => ['sometimes', 'nullable', 'string', 'max:1000'],
         ], [
             'custom_trade_name.required' => 'Нельзя удалить наименование у пользовательского препарата, не привязанного к справочнику.',
             'custom_trade_name.min' => 'Наименование препарата должно содержать не менее 2 символов.',
