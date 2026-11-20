@@ -113,21 +113,28 @@ class DatabaseSeeder extends Seeder
         // 4. Популярные справочные препараты (Единый справочник)
         $this->call(ReferenceMedicineSeeder::class);
 
-        $refIbuprofen = ReferenceMedicine::where('barcode', '4601808001011')->first();
-        $refAmoxi = ReferenceMedicine::where('barcode', '4601808001028')->first();
-        $refNazivin = ReferenceMedicine::where('barcode', '4601808001035')->first();
-        $refAspirin = ReferenceMedicine::where('barcode', '4601808001042')->first();
-        $refOmeprazole = ReferenceMedicine::where('barcode', '4601808001059')->first();
-        $refLoperamide = ReferenceMedicine::where('barcode', '4601808001066')->first();
-        $refCardiomagnyl = ReferenceMedicine::where('barcode', '4601808001073')->first();
+        $refIbuprofen = ReferenceMedicine::where('trade_name', 'like', '%Ибупрофен%')->first()
+            ?: ReferenceMedicine::where('barcode', '4601808001011')->first();
+        $refAmoxi = ReferenceMedicine::where('trade_name', 'like', '%Амоксициллин%')->first()
+            ?: ReferenceMedicine::where('barcode', '4601808001028')->first();
+        $refNazivin = ReferenceMedicine::where('trade_name', 'like', '%Називин%')->first()
+            ?: ReferenceMedicine::where('barcode', '4024451000105')->first();
+        $refAspirin = ReferenceMedicine::where('trade_name', 'like', '%Аспирин%')->first()
+            ?: ReferenceMedicine::where('inn', 'like', '%Ацетилсалициловая%')->first();
+        $refOmeprazole = ReferenceMedicine::where('trade_name', 'like', '%Омепразол%')->first()
+            ?: ReferenceMedicine::where('barcode', '4601969001402')->first();
+        $refLoperamide = ReferenceMedicine::where('trade_name', 'like', '%Лоперамид%')->first()
+            ?: ReferenceMedicine::where('barcode', '4601969003307')->first();
+        $refCardiomagnyl = ReferenceMedicine::where('trade_name', 'like', '%Кардиомагнил%')->first()
+            ?: ReferenceMedicine::where('barcode', '4605964001759')->first();
 
         // 5. 10-12 физических упаковок лекарств (включая 1 просроченное и 1 скоро истекающее)
         // 1. Ибупрофен (нормальный)
         $medIbuprofen = Medicine::create([
             'medicine_box_id' => $homeBox->id,
-            'reference_medicine_id' => $refIbuprofen->id,
+            'reference_medicine_id' => $refIbuprofen?->id,
             'custom_trade_name' => 'Ибупрофен 400 мг',
-            'barcode' => '4601808001011',
+            'barcode' => $refIbuprofen?->barcode ?? '4601808001011',
             'quantity' => 16.0,
             'quantity_unit' => MedicineQuantityUnit::PILLS,
             'expiration_date' => Carbon::now()->addMonths(14)->toDateString(),
@@ -138,9 +145,9 @@ class DatabaseSeeder extends Seeder
         // 2. Амоксициллин (нормальный, используется в текущем курсе)
         $medAmoxi = Medicine::create([
             'medicine_box_id' => $homeBox->id,
-            'reference_medicine_id' => $refAmoxi->id,
+            'reference_medicine_id' => $refAmoxi?->id,
             'custom_trade_name' => 'Амоксициллин 500 мг',
-            'barcode' => '4601808001028',
+            'barcode' => $refAmoxi?->barcode ?? '4601808001028',
             'quantity' => 8.0,
             'quantity_unit' => MedicineQuantityUnit::PILLS,
             'expiration_date' => Carbon::now()->addMonths(8)->toDateString(),
@@ -151,13 +158,14 @@ class DatabaseSeeder extends Seeder
         // 3. Називин — СКОРО ИСТЕКАЕТ (срок годности истекает через 5 дней)
         $medNazivin = Medicine::create([
             'medicine_box_id' => $homeBox->id,
-            'reference_medicine_id' => $refNazivin->id,
+            'reference_medicine_id' => $refNazivin?->id,
             'custom_trade_name' => 'Спрей Називин 0.05%',
-            'barcode' => '4601808001035',
+            'barcode' => $refNazivin?->barcode ?? '4024451000105',
             'quantity' => 1.0,
             'quantity_unit' => MedicineQuantityUnit::UNIT,
             'expiration_date' => Carbon::now()->addDays(5)->toDateString(), // Скоро истекает!
             'opened_at' => Carbon::now()->subDays(20)->toDateString(),
+            'days_after_opening' => 30,
             'status' => MedicineStatus::ACTIVE,
             'notes' => 'Вскрыт 20 дней назад, срок после вскрытия подходит к концу',
         ]);
@@ -165,9 +173,9 @@ class DatabaseSeeder extends Seeder
         // 4. Аспирин Кардио — ПРОСРОЧЕН (срок истёк месяц назад)
         $medAspirin = Medicine::create([
             'medicine_box_id' => $homeBox->id,
-            'reference_medicine_id' => $refAspirin->id,
+            'reference_medicine_id' => $refAspirin?->id,
             'custom_trade_name' => 'Аспирин Кардио 100 мг',
-            'barcode' => '4601808001042',
+            'barcode' => $refAspirin?->barcode ?? '4601808001042',
             'quantity' => 4.0,
             'quantity_unit' => MedicineQuantityUnit::PILLS,
             'expiration_date' => Carbon::now()->subMonth()->toDateString(), // Просрочено!
@@ -178,9 +186,9 @@ class DatabaseSeeder extends Seeder
         // 5. Омепразол (нормальный, курс Анны)
         $medOmeprazole = Medicine::create([
             'medicine_box_id' => $homeBox->id,
-            'reference_medicine_id' => $refOmeprazole->id,
+            'reference_medicine_id' => $refOmeprazole?->id,
             'custom_trade_name' => 'Омепразол 20 мг',
-            'barcode' => '4601808001059',
+            'barcode' => $refOmeprazole?->barcode ?? '4601969001402',
             'quantity' => 14.0,
             'quantity_unit' => MedicineQuantityUnit::PILLS,
             'expiration_date' => Carbon::now()->addMonths(18)->toDateString(),
@@ -191,9 +199,9 @@ class DatabaseSeeder extends Seeder
         // 6. Лоперамид
         Medicine::create([
             'medicine_box_id' => $homeBox->id,
-            'reference_medicine_id' => $refLoperamide->id,
+            'reference_medicine_id' => $refLoperamide?->id,
             'custom_trade_name' => 'Лоперамид 2 мг',
-            'barcode' => '4601808001066',
+            'barcode' => $refLoperamide?->barcode ?? '4601969003307',
             'quantity' => 18.0,
             'quantity_unit' => MedicineQuantityUnit::PILLS,
             'expiration_date' => Carbon::now()->addMonths(24)->toDateString(),
@@ -204,9 +212,9 @@ class DatabaseSeeder extends Seeder
         // 7. Кардиомагнил (для Бабушки Елены)
         $medCardiomagnyl = Medicine::create([
             'medicine_box_id' => $homeBox->id,
-            'reference_medicine_id' => $refCardiomagnyl->id,
+            'reference_medicine_id' => $refCardiomagnyl?->id,
             'custom_trade_name' => 'Кардиомагнил 75 мг',
-            'barcode' => '4601808001073',
+            'barcode' => $refCardiomagnyl?->barcode ?? '4605964001759',
             'quantity' => 28.0,
             'quantity_unit' => MedicineQuantityUnit::PILLS,
             'expiration_date' => Carbon::now()->addMonths(10)->toDateString(),
